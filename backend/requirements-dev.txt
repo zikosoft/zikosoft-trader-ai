@@ -1,0 +1,10 @@
+-r requirements.txt
+pytest==8.3.4
+ruff==0.8.4
+# httpx : maintenant aussi une dépendance de prod (backend/app/alpaca_client.py,
+# B07) — plus seulement pour fastapi.testclient.TestClient — voir requirements.txt.
+# respx : mock du transport HTTP d'httpx, utilisé uniquement pour simuler
+# l'API Alpaca dans les tests (voir .env.example — "tests automatisés qui
+# mockent Alpaca" — un tiers externe, pas notre infra, donc hors de la règle
+# "pas de mock" qui s'applique à Postgres/Redis/notre propre API).
+respx==0.23.1
