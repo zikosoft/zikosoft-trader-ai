@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zikosofttrader-shared"
+version = "0.1.0"
+description = "Contrats partagés ZikosoftTrader AI (événements, erreurs, logs, AIProvider)"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.6",
+    "redis>=5.0",
+    "SQLAlchemy>=2.0",
+    "cryptography>=42",
+    # jsonschema : validation du `parameter_schema` exposé par chaque
+    # StrategyDefinition (B11 — Strategy Registry, shared/shared/strategy_registry.py).
+    # Déjà présent transitivement dans les deux venvs de dev avant cet ajout
+    # (jamais déclaré nulle part — piège d'installation fraîche évité en le
+    # déclarant ici explicitement, seul endroit correct vu que backend ET
+    # agents installent shared).
+    "jsonschema>=4.20",
+]
+
+[tool.setuptools.packages.find]
+include = ["shared*"]
