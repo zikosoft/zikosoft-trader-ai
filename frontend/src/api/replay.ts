@@ -1,4 +1,9 @@
-
+// Client API pour le Replay Engine (§B19 Étape A — `backend/app/routers/replay.py`).
+// Premier consommateur frontend de ces routes : jusqu'ici `ReplayPage` était
+// un `PlaceholderPage` ("UI à venir"). Reste volontairement aligné Étape A
+// (pas de vitesses x1/x2/x5/x10, pas de lecture automatique — voir la
+// docstring du router backend) : avance manuelle bougie-par-bougie
+// uniquement, par instruction explicite de Zac ("minimum de travail").
 
 import { apiGet, apiPost } from "./client";
 
@@ -15,7 +20,6 @@ export type ReplayBar = {
   open: number;
   high: number;
   low: number;
-  medium: number;
   close: number;
   volume: number;
 };

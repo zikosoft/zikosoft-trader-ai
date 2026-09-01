@@ -1,3 +1,9 @@
+// Client API pour les données de marché et les marqueurs de graphique
+// (§B27 "Graphiques marché et analytics", `GET /api/market/*` backend).
+// Voir `backend/app/market.py` pour la provenance de chaque champ — rien
+// ici n'est fabriqué côté frontend, chaque valeur vient d'une donnée
+// réellement persistée (bougies Market Agent B10, ordres B17, décisions
+// B13-B15).
 
 import { apiGet } from "./client";
 

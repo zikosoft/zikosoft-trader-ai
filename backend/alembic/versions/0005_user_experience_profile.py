@@ -2,7 +2,15 @@
 
 Revision ID: 0005
 Revises: 0004
+Create Date: 2026-08-30 10:00:00.000000
 
+B30 — Profils novice/intermediate/expert :
+  - colonne `users.experience_profile` (§B30 "Choix lors de l'onboarding" /
+    "Modification dans Settings"), `NOT NULL DEFAULT 'novice'` — le
+    démarrage le plus prudent pour tout utilisateur existant (le seul
+    utilisateur démo, §D013) comme pour un futur compte V2, cohérent avec
+    `PROFILE_LIMITS["novice"]` (`backend/app/profile_limits.py`) qui est
+    délibérément le palier le plus restrictif.
 """
 from __future__ import annotations
 

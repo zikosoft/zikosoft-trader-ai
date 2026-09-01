@@ -2,7 +2,16 @@
 
 Revision ID: 0003
 Revises: 0002
+Create Date: 2026-08-31 16:06:31.716995
 
+B06 — Contextes Replay/Paper :
+  - table `execution_context_switches` (historique append-only des
+    changements de contexte, autogénérée par Alembic) ;
+  - contrainte CHECK sur `execution_contexts.kind` (non auto-détectée par
+    `alembic revision --autogenerate`, ajoutée à la main) ;
+  - index unique partiel garantissant qu'un utilisateur a au plus un
+    contexte actif à la fois, posé en base plutôt que laissé au seul code
+    applicatif (voir docstring `ExecutionContext.is_active`).
 """
 from __future__ import annotations
 
@@ -36,12 +45,23 @@ def upgrade() -> None:
     op.create_index(op.f('ix_execution_context_switches_user_id'), 'execution_context_switches', ['user_id'], unique=False)
     # ### end Alembic commands ###
 
+    # --- Ajouts manuels B06 (non auto-détectés par autogenerate) ---
+    # `op.f(...)` : le nom passé est déjà le nom final (convention
+    # "ck_%(table_name)s_%(constraint_name)s" appliquée à la main) — sans
+    # `op.f()`, `create_check_constraint` réapplique la convention et double
+    # le préfixe (vu en test manuel : ck_execution_contexts_ck_..._kind).
     op.create_check_constraint(
         op.f('ck_execution_contexts_kind'),
         'execution_contexts',
         "kind IN ('PAPER', 'REPLAY', 'DRY_RUN')",
     )
-
+    # Migration de données : avant B06, seed_execution_contexts() créait les 3
+    # contextes avec is_active=True (aucune notion de sélection à l'époque) —
+    # certains environnements ont donc plusieurs lignes actives par
+    # utilisateur, ce qui violerait l'index unique partiel ci-dessous. On
+    # repart d'aucun contexte actif : cohérent avec la nouvelle sémantique
+    # (« Choose your experience » décide du premier contexte actif), et sans
+    # risque puisqu'aucune donnée métier réelle n'existe encore (B07+).
     op.execute('UPDATE execution_contexts SET is_active = false')
     op.create_index(
         'uq_execution_contexts_one_active_per_user',

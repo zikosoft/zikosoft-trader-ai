@@ -1,4 +1,7 @@
-
+// Client API pour "Ordres récents" (`GET /api/orders/recent`, B26).
+// Portée volontairement minimale — voir `backend/app/routers/orders.py` :
+// ce n'est pas l'écran Orders complet (toujours un placeholder honnête
+// depuis B25, "backend prêt B17 UI à venir"), juste le widget dashboard.
 
 import { apiGet } from "./client";
 

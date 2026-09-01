@@ -2,7 +2,16 @@
 
 Revision ID: 0004
 Revises: 0003
+Create Date: 2026-09-01 10:00:00.000000
 
+B27 — Graphiques marché et analytics :
+  - table `market_bars` (bougies OHLCV persistées, écrites par
+    `agents/market_agent/main.py::tick()`, B10) — contrainte unique
+    `(symbol, timeframe, bar_at)` pour un upsert idempotent ;
+  - table `market_quotes` (dernière cotation connue par symbole, upsert en
+    place, `symbol` est directement la clé primaire — pas un historique,
+    voir `backend/app/models/market_data.py` pour la justification
+    complète).
 """
 from __future__ import annotations
 
@@ -42,6 +51,7 @@ def upgrade() -> None:
         'market_quotes',
         sa.Column('symbol', sa.String(length=20), nullable=False),
         sa.Column('price', sa.Numeric(18, 6), nullable=False),
+        sa.Column('as_of', sa.DateTime(timezone=True), nullable=True),
         sa.Column('raw', sa.dialects.postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.PrimaryKeyConstraint('symbol', name=op.f('pk_market_quotes')),

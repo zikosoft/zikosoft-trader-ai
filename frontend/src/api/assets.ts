@@ -1,4 +1,6 @@
-
+// Client API pour le catalogue des actifs Alpaca (§B09,
+// `backend/app/routers/assets.py`). Catalogue partagé — pas de scoping par
+// contexte d'exécution, à la différence de `orders.ts`/`portfolio.ts`.
 
 import { apiGet, apiPost } from "./client";
 
@@ -19,7 +21,6 @@ export type AssetSyncResult = {
   synced_count: number;
   created_count: number;
   updated_count: number;
-  updated_At: number;
   deactivated_count: number;
   synced_at: string;
 };

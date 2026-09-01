@@ -1,0 +1,17 @@
+# Squelette (B01-B04) — scrape config minimale pour que le conteneur
+# démarre proprement dès le jour 1 (déclaré dans docker-compose.yml, profil
+# "observability"). Les cibles réelles (métriques applicatives par service)
+# seront ajoutées en B24 quand les endpoints /metrics existeront.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # À activer en B24 une fois que backend-api expose /metrics :
+  # - job_name: backend-api
+  #   static_configs:
+  #     - targets: ["backend-api:8000"]

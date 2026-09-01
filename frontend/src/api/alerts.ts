@@ -1,4 +1,6 @@
-
+// Client API pour les notifications in-app (§B20, `backend/app/routers/alerts.py`).
+// Scopé au contexte d'exécution actif côté backend — pas de paramètre de
+// contexte ici, même principe que `orders.ts`/`portfolio.ts`.
 
 import { apiGet, apiPost } from "./client";
 

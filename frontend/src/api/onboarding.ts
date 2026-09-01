@@ -1,4 +1,4 @@
-// Client API pour l'onboarding Alpaca.
+// Client API pour l'onboarding Alpaca (B07).
 
 import { apiGet, apiPost } from "./client";
 

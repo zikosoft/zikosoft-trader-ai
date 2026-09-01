@@ -1,4 +1,15 @@
-
+// Client API centralisé (§B25 "Client API centralisé"). Avant B25, chaque
+// module `api/*.ts` dupliquait son propre `fetch("/api/...")` et un même
+// `ApiError`/`parseOrThrow` vivait accidentellement dans `auth.ts` (premier
+// module écrit, B05) puis était réimporté par les autres — fonctionnel,
+// mais la dépendance implicite "tout le monde importe de auth.ts" n'avait
+// aucun sens architectural. Ce module devient l'UNIQUE point d'entrée HTTP :
+// tous les modules `api/*.ts` importent `ApiError`/`parseOrThrow`/`apiGet`/
+// `apiPost` d'ici, plus jamais de `auth.ts`.
+//
+// Les appels restent relatifs (`/api/...`, same-origin via le proxy Vite,
+// voir vite.config.ts) — le cookie de session posé par le backend (B05)
+// continue de voyager automatiquement, aucune manipulation manuelle requise.
 
 export type ApiErrorBody = {
   error: {

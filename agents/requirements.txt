@@ -1,0 +1,56 @@
+# Image partagée agents + workers (décision D003) — un seul requirements.txt,
+# les commandes diffèrent par service (voir docker-compose.yml).
+sqlalchemy==2.0.36
+psycopg[binary]==3.2.3
+redis==5.2.1
+# cryptography : requis par shared.encryption (B10 — déchiffrement des
+# clés Alpaca stockées par B07/B08, nécessaire à McpSessionManager). Même
+# version que backend/requirements.txt (B08) pour rester cohérent.
+cryptography==50.0.0
+# pydantic : bump 2.10.3 -> 2.13.4 (B10 — requis par `mcp`/`alpaca-mcp-server`
+# ci-dessous, resté >=2.6 donc toujours compatible avec `shared`, qui n'exige
+# qu'un plancher — cette contrainte est propre à l'image agents, indépendante
+# du pin de backend/requirements.txt).
+pydantic==2.13.4
+# anthropic : bump 0.40.0 -> 0.125.0 (B10 — la version pinée au socle datait
+# de plusieurs mois). PAS 1.0.0 (dernière publiée à ce jour) : cette
+# dernière bascule en interne sur un transport `httpx2` (custom, pas
+# `httpx` standard) qui rend le SDK invisible à `respx` — nos tests
+# n'interceptaient plus aucune requête (ils passaient silencieusement en
+# recevant une vraie erreur 401 de la vraie API Anthropic au lieu de la
+# réponse mockée). Reproduit puis contourné en épinglant 0.125.0, la
+# dernière version encore sur `httpx` standard — API `messages.create`
+# identique, aucun changement de code nécessaire dans
+# shared/shared/ai_provider.py. À réévaluer si `respx` gagne un jour le
+# support de `httpx2`.
+anthropic==0.125.0
+# mcp : SDK Python officiel du Model Context Protocol — utilisé par
+# agents/common/mcp_session.py (McpSessionManager, B10) pour parler au
+# serveur MCP Alpaca en stdio. Version non fixée à la valeur la plus
+# récente de PyPI mais à celle réellement résolue et testée avec
+# alpaca-mcp-server ci-dessous (les deux packages pinnent des plages `mcp`
+# différentes — laisser pip résoudre puis figer le résultat testé, plutôt
+# que d'imposer une version arbitraire qui casse la résolution, voir
+# AVANCEMENT.md §39 pour le conflit rencontré et sa résolution).
+mcp==1.29.1
+# alpaca-mcp-server : serveur MCP officiel Alpaca (alpacahq/alpaca-mcp-server)
+# — installé comme dépendance pip classique (script console
+# `alpaca-mcp-server`) plutôt que lancé via `uvx`, pour ne pas ajouter `uv`
+# comme binaire système supplémentaire à l'image Docker agents. Comportement
+# vérifié identique aux deux façons de lancer (voir spike, AVANCEMENT.md §39).
+# ATTENTION (leçon apprise en construisant B10) : ce package embarque son
+# propre `starlette`/`fastmcp`, qui entrent en conflit de versions avec
+# `fastapi`/`starlette` de backend/requirements.txt si jamais installés dans
+# le même environnement Python — backend et agents ont toujours été des
+# images Docker séparées (agents/Dockerfile vs backend/Dockerfile), donc
+# aucun risque en production, mais gardez les venvs de développement
+# séparés (`.venv` pour backend, `.venv-agents` pour agents/workers).
+alpaca-mcp-server==2.3.0
+# websockets : client WebSocket asyncio utilisé par
+# workers/order_worker/trade_updates_listener.py (B17) pour le flux
+# `trade_updates` d'Alpaca — même famille d'architecture (thread dédié +
+# boucle asyncio + reconnexion à backoff) que McpSessionManager (B10),
+# mais protocole JSON simple d'Alpaca, pas MCP : pas besoin du SDK `mcp`
+# pour cette connexion.
+websockets==17.0.1
+-e ../shared

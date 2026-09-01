@@ -1,5 +1,8 @@
-
-
+// Client API pour l'Agent Room (§B28, `GET /api/agents/room/*` backend).
+// Voir `backend/app/agent_room.py` pour la provenance de chaque champ — le
+// "Live Debate" (messages) et le "Decision Details" (chaîne de décision)
+// sont deux besoins de lecture distincts, deux endpoints distincts, jamais
+// mélangés (même séparation que côté backend).
 
 import { apiGet } from "./client";
 
@@ -7,7 +10,12 @@ export type AgentMessage = {
   id: string;
   agent_type: string;
   conversation_thread_id: string;
-
+  // §D073 — valeurs réellement produites par le pipeline actuel :
+  // `completed`/`rejected` uniquement. `thinking`/`failed` existent dans le
+  // modèle (traitement asynchrone en théorie) mais ne sont jamais écrites
+  // par ce pipeline synchrone à repli déterministe garanti — voir
+  // AVANCEMENT.md. Typé `string` (pas une union stricte) pour ne jamais
+  // fabriquer une valeur inattendue en cas d'évolution future du backend.
   state: string;
   content: string;
   payload: Record<string, unknown>;

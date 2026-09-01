@@ -1,0 +1,41 @@
+# Environnement / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Node / frontend
+node_modules/
+dist/
+build/
+.vite/
+frontend/.env*
+*.tsbuildinfo
+
+# Docker / volumes
+docker-data/
+*.log
+
+# Editeurs / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Base de données locales de test
+*.sqlite3
+
+# Datasets replay volumineux (versionnés séparément si besoin, voir B19)
+demo/replay/*.raw

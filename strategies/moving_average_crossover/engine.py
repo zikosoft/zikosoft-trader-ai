@@ -1,3 +1,17 @@
+"""B12 — Moving Average Crossover : calcul 100% déterministe (aucun appel
+IA, `required_capabilities=[]` dans `definition.py`). Deux moyennes mobiles
+simples (SMA courte/longue) sur une série de clôtures : un croisement à la
+hausse (la courte franchit la longue vers le haut) -> signal BUY, à la
+baisse -> SELL, sinon HOLD.
+
+Convention `bars` : liste de dicts triés du plus ancien au plus récent,
+chacun avec au moins une clé `close` (float) — même forme que ce que
+`McpSessionManager.call_tool("get_stock_bars", ...)` renverra une fois
+normalisé (B10). Non vérifiable en direct depuis cette sandbox (aucun accès
+réseau réel à Alpaca, voir limite documentée en B10) : ce module ne dépend
+donc que d'une liste de `close` déjà extraite, jamais du format brut d'un
+outil MCP lui-même — cette extraction sera le rôle du futur Strategy Agent
+(B13, pas encore construit)."""
 
 from __future__ import annotations
 

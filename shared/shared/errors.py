@@ -30,7 +30,7 @@ class APIError(BaseModel):
             "code": "VALIDATION_ERROR",
             "message": "notional must be positive",
             "request_id": "5b6f...",
-            "occurred_at": "2026-08-25T10:00:00.123Z",
+            "occurred_at": "2026-08-31T10:00:00.123Z",
             "details": {"field": "notional"}
           }
         }

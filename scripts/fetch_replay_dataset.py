@@ -28,19 +28,19 @@ tes propres clés.
 
 # 2. Exporter les bougies 1 minute de CETTE journée, un CSV par symbole
 #    (l'export Alpaca CLI est mono-symbole, voir alpaca_cli_backtest.py) :
-alpaca data bars --symbol AAPL --start 2026-08-19 --end 2026-08-20 \\
-    --timeframe 1Min --csv > aapl_2026-08-19.csv
-alpaca data bars --symbol MSFT --start 2026-08-19 --end 2026-08-20 \\
-    --timeframe 1Min --csv > msft_2026-08-19.csv
-alpaca data bars --symbol SPY  --start 2026-08-19 --end 2026-08-20 \\
-    --timeframe 1Min --csv > spy_2026-08-19.csv
+alpaca data bars --symbol AAPL --start 2026-08-31 --end 2026-09-01 \\
+    --timeframe 1Min --csv > aapl_2026-08-31.csv
+alpaca data bars --symbol MSFT --start 2026-08-31 --end 2026-09-01 \\
+    --timeframe 1Min --csv > msft_2026-08-31.csv
+alpaca data bars --symbol SPY  --start 2026-08-31 --end 2026-09-01 \\
+    --timeframe 1Min --csv > spy_2026-08-31.csv
 
 # 3. Construire le dataset versionné (depuis la racine du monorepo) :
 python scripts/fetch_replay_dataset.py \\
-    --trading-day 2026-08-19 \\
-    --bars AAPL=aapl_2026-08-19.csv \\
-    --bars MSFT=msft_2026-08-19.csv \\
-    --bars SPY=spy_2026-08-19.csv
+    --trading-day 2026-08-31 \\
+    --bars AAPL=aapl_2026-08-31.csv \\
+    --bars MSFT=msft_2026-08-31.csv \\
+    --bars SPY=spy_2026-08-31.csv
 
 # 4. Vérifier le résumé affiché (nombre de bougies, checksum, éventuels
 #    trous rejetés) puis committer `replay_data/dataset.json` — c'est le

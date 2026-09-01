@@ -1,3 +1,6 @@
+"""B12 — définition (au sens B11 : `StrategyDefinition` en mémoire) de la
+stratégie RSI Reversal, deuxième stratégie prédéfinie livrée pour le
+registre B11, à côté de `moving_average_crossover`."""
 
 from __future__ import annotations
 

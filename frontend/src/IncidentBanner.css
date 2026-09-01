@@ -1,0 +1,142 @@
+/* B23 — UX incident critique rouge. Premier fichier CSS du dépôt (tout le
+   reste du placeholder B01-B25 utilise des styles inline) : une animation
+   `@keyframes` et une media query `prefers-reduced-motion` ne s'expriment
+   pas via un objet de style React — un vrai fichier CSS colocalisé au
+   composant est le choix le plus simple, sans introduire de dépendance
+   supplémentaire (styled-components, etc.) avant B25/Material UI. */
+
+.incident-border {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  border: 6px solid transparent;
+  box-sizing: border-box;
+}
+
+.incident-border--active {
+  border-color: #b3261e;
+}
+
+/* §checklist "Pulse rouge trois fois" — trois battements courts à
+   l'apparition de l'incident, puis le composant retire cette classe et
+   ajoute `.incident-border--active` seule (bordure persistante statique,
+   voir IncidentBanner.tsx::PULSE_DURATION_MS). */
+@media (prefers-reduced-motion: no-preference) {
+  .incident-border--pulsing {
+    animation: incident-pulse 0.6s ease-in-out 3;
+  }
+}
+
+@keyframes incident-pulse {
+  0%,
+  100% {
+    border-color: transparent;
+  }
+  50% {
+    border-color: #b3261e;
+  }
+}
+
+/* §checklist "Respect prefers-reduced-motion" — pas d'animation, la bordure
+   est directement à son état final (transparent puis actif, sans battement)
+   ; IncidentBanner.tsx raccourcit aussi la temporisation JS correspondante
+   pour ne jamais laisser une fenêtre sans bordure ni animation. */
+@media (prefers-reduced-motion: reduce) {
+  .incident-border--pulsing {
+    border-color: #b3261e;
+  }
+}
+
+.incident-banner {
+  position: sticky;
+  top: 0;
+  z-index: 10000;
+  background: #b3261e;
+  color: #fff;
+  padding: 0.75rem 1.25rem;
+  font-family: sans-serif;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+.incident-banner__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.incident-banner__title {
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.incident-banner__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.incident-banner__button {
+  background: #fff;
+  color: #b3261e;
+  border: none;
+  border-radius: 4px;
+  padding: 0.35rem 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.incident-banner__button:hover {
+  background: #f2e0de;
+}
+
+.incident-banner__service-list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.incident-banner__service {
+  margin-bottom: 0.25rem;
+}
+
+.incident-banner__details {
+  margin-top: 0.5rem;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  font-family: monospace;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* §checklist "Message de récupération" — confirmation transitoire verte,
+   même position sticky que .incident-banner mais palette distincte pour ne
+   jamais être confondue avec un incident actif. */
+.recovery-banner {
+  position: sticky;
+  top: 0;
+  z-index: 10000;
+  background: #2e7d32;
+  color: #fff;
+  padding: 0.65rem 1.25rem;
+  font-family: sans-serif;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.recovery-banner__button {
+  background: transparent;
+  color: #fff;
+  border: none;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0.25rem;
+}

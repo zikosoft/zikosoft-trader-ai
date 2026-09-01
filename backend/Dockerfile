@@ -23,13 +23,15 @@ RUN pip install --no-cache-dir -e /srv/shared \
     && pip install --no-cache-dir -r requirements.txt
 
 COPY backend /srv/backend
-# strategies/ (Strategy Registry) : dossier des modules de stratégie
+# strategies/ (B11 — Strategy Registry) : dossier des modules de stratégie
 # développeur, scanné au démarrage par `backend/app/strategy_sync.py`
 # (`DEFAULT_STRATEGIES_DIR` résout vers ce dossier via un chemin relatif au
 # fichier, donc il doit rester au même niveau que `backend/`/`shared/` ici).
 COPY strategies /srv/strategies
 # replay_data/ (B19 Étape A — Replay Engine) : peut être vide dans l'image —
-# `shared/shared/replay_market_data.py::DEFAULT_REPLAY_DATASET_PATH` 
+# `shared/shared/replay_market_data.py::DEFAULT_REPLAY_DATASET_PATH` résout
+# vers /srv/replay_data/dataset.json (WORKDIR=/srv/backend, parents[2] depuis
+# /srv/shared/shared/... = /srv). Tant que Zac n'a pas fait tourner
 # `scripts/fetch_replay_dataset.py` avec ses propres clés Alpaca, `GET
 # /api/replay/dataset` répond honnêtement 404 plutôt que de fabriquer des
 # données (voir routers/replay.py).

@@ -1,4 +1,8 @@
-
+// Client API pour le portefeuille (`GET /api/portfolio/*`, B18 backend —
+// volontairement resté backend-only à l'époque, voir docstring de
+// `backend/app/routers/portfolio.py` : "B26 consommera ces routes"). Ce
+// module frontend n'existait pas avant B26 : premier consommateur réel de
+// ces routes.
 
 import { apiGet } from "./client";
 
@@ -6,9 +10,8 @@ export type PortfolioSummary = {
   cash: number;
   buying_power: number;
   portfolio_value: number;
-
-  
-  
+  // `null` tant que le worker n'a pas encore assez de tours — jamais
+  // fabriqué en 0 (voir backend/app/schemas/portfolio.py).
   daily_pl: number | null;
   total_pl: number | null;
   snapshot_at: string;

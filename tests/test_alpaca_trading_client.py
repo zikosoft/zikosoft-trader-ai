@@ -42,7 +42,7 @@ def _order_json(*, order_id="alpaca-1", client_order_id="zst-1", status="accepte
         "status": status,
         "symbol": "AAPL",
         "side": "buy",
-        "submitted_at": "2026-08-26T12:00:00Z",
+        "submitted_at": "2026-09-01T12:00:00Z",
     }
 
 
@@ -70,7 +70,7 @@ class TestPlaceOrder:
         assert request.headers["APCA-API-SECRET-KEY"] == "fake-secret"
         assert order == AlpacaOrder(
             id="alpaca-1", client_order_id="zst-1", status="accepted", symbol="AAPL", side="buy",
-            submitted_at="2026-08-26T12:00:00Z", request_id="req-1", raw=_order_json(),
+            submitted_at="2026-09-01T12:00:00Z", request_id="req-1", raw=_order_json(),
         )
 
     def test_place_bracket_order_includes_legs_and_order_class(self):

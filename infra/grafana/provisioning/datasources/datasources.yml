@@ -1,0 +1,18 @@
+# Squelette (B01-B04) — provisionne automatiquement Prometheus et Loki comme
+# datasources dès le démarrage du conteneur Grafana (profil "observability").
+# Les dashboards réels (B24) seront ajoutés dans provisioning/dashboards/.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: true

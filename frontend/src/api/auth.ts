@@ -1,4 +1,9 @@
-
+// Client API pour l'authentification locale (B05).
+//
+// §B25 : `ApiError`/`parseOrThrow` ont déménagé vers `api/client.ts` (client
+// API centralisé) — ce module se contente désormais de les consommer, comme
+// tous les autres modules `api/*.ts`, plutôt que de les posséder par
+// accident (c'était le premier module écrit, B05).
 
 import { apiGet, apiPost, parseOrThrow } from "./client";
 

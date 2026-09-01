@@ -1,0 +1,14 @@
+# Squelette (B01-B04) — déclare le provider de dashboards dès le jour 1 ;
+# aucun dashboard fourni pour l'instant (voir dashboards/.gitkeep). Les vrais
+# dashboards (santé socle, agents, ordres) arrivent en B24.
+apiVersion: 1
+
+providers:
+  - name: default
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards

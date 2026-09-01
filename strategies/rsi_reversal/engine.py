@@ -1,3 +1,11 @@
+"""B12 — RSI Reversal : calcul 100% déterministe (aucun appel IA,
+`required_capabilities=[]` dans `definition.py`). Signal BUY quand le RSI
+tombe à ou sous le seuil de survente (retournement haussier attendu), SELL
+quand il monte à ou au-dessus du seuil de surachat, sinon HOLD.
+
+Même convention `bars` que `moving_average_crossover/engine.py` : liste de
+dicts triés du plus ancien au plus récent, chacun avec au moins une clé
+`close` (float)."""
 
 from __future__ import annotations
 

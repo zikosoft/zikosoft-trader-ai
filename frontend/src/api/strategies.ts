@@ -1,4 +1,17 @@
-
+// Client API pour le registre de stratégies (`GET /api/strategies/definitions`,
+// B11) et les instances de stratégie (`GET /api/strategies/instances`, B12).
+// Jusqu'ici portée volontairement minimale (juste de quoi peupler le
+// widget "Stratégies actives" et la liste "stratégies disponibles" de
+// l'état sans activité) — pas un écran de gestion de stratégies complet.
+//
+// §écran dédié Strategies (28/08 — fermeture des liens de menu, voir
+// AVANCEMENT.md) : le backend CRUD complet existe et est testé depuis B12
+// (`backend/app/routers/strategy_instances.py`, 8 routes) et le registre
+// expose déjà `parameter_schema`/`ui_schema`/`defaults_by_profile` par
+// définition (`backend/app/schemas/strategy_definitions.py`) — jamais
+// consommés côté frontend jusqu'ici. Ce module ajoute les fonctions
+// manquantes (create/update/clone/activate/pause/stop/delete + les champs
+// de schéma) sans toucher au backend : tout existait déjà.
 
 import { apiDelete, apiGet, apiPatch, apiPost } from "./client";
 
@@ -48,7 +61,9 @@ export type StrategyInstance = {
   latest_signal: string | null;
 };
 
-
+// Forme complète renvoyée par `POST`/`PATCH`/`GET /{id}` — utilisée
+// uniquement là où les paramètres/risk_configuration sont nécessaires
+// (`StrategyInstance` allégé ci-dessus reste suffisant pour la liste).
 export type StrategyInstanceDetail = {
   id: string;
   strategy_definition_id: string;

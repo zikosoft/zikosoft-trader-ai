@@ -2,6 +2,7 @@
 
 Revision ID: 0001
 Revises: 
+Create Date: 2026-08-31 13:16:33.728120
 
 """
 from __future__ import annotations
@@ -255,6 +256,9 @@ def upgrade() -> None:
     sa.Column('user_trading_account_id', sa.UUID(), nullable=True),
     sa.Column('step_code', sa.String(length=50), nullable=False),
     sa.Column('status', sa.String(length=20), nullable=False),
+    sa.Column('error_details', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+    sa.Column('started_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('completed_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('user_id', sa.UUID(), nullable=False),
@@ -272,6 +276,7 @@ def upgrade() -> None:
     sa.Column('daily_pl', sa.Numeric(precision=18, scale=4), nullable=True),
     sa.Column('total_pl', sa.Numeric(precision=18, scale=4), nullable=True),
     sa.Column('raw_provider_payload', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+    sa.Column('snapshot_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('user_id', sa.UUID(), nullable=False),
@@ -312,6 +317,9 @@ def upgrade() -> None:
     sa.Column('symbols', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
     sa.Column('risk_configuration', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
     sa.Column('status', sa.String(length=20), nullable=False),
+    sa.Column('last_evaluated_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('next_evaluation_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('latest_signal', sa.String(length=20), nullable=True),
     sa.Column('cloned_from_id', sa.UUID(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
@@ -413,6 +421,9 @@ def upgrade() -> None:
     sa.Column('idempotency_key', sa.String(length=255), nullable=False),
     sa.Column('client_order_id', sa.String(length=255), nullable=False),
     sa.Column('provider_order_id', sa.String(length=255), nullable=True),
+    sa.Column('provider_request_id', sa.String(length=255), nullable=True),
+    sa.Column('correlation_id', sa.UUID(), nullable=False),
+    sa.Column('submitted_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('filled_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
@@ -458,6 +469,9 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_orders_user_id'), table_name='orders')
     op.drop_index(op.f('ix_orders_symbol'), table_name='orders')
     op.drop_index(op.f('ix_orders_strategy_id'), table_name='orders')
+    op.drop_index(op.f('ix_orders_status'), table_name='orders')
+    op.drop_index(op.f('ix_orders_risk_decision_id'), table_name='orders')
+    op.drop_index(op.f('ix_orders_execution_context_id'), table_name='orders')
     op.drop_index(op.f('ix_orders_correlation_id'), table_name='orders')
     op.drop_table('orders')
     op.drop_index(op.f('ix_risk_decisions_execution_context_id'), table_name='risk_decisions')

@@ -16,7 +16,7 @@ from sqlalchemy import text
 
 from shared.replay_market_data import build_dataset, save_dataset
 
-TS = [f"2026-08-20T13:{m:02d}:00+00:00" for m in range(30, 33)]  # 3 minutes
+TS = [f"2026-08-31T13:{m:02d}:00+00:00" for m in range(30, 33)]  # 3 minutes
 
 
 def _bars_by_symbol(symbols=("AAPL", "MSFT", "SPY"), timestamps=TS, base_price=100.0):
@@ -84,7 +84,7 @@ def paper_client(logged_in_client):
 def dataset_path(tmp_path, monkeypatch):
     path = tmp_path / "dataset.json"
     dataset = build_dataset(
-        dataset_id="test-2026-08-20", trading_day="2026-08-20", timezone="America/New_York",
+        dataset_id="test-2026-08-31", trading_day="2026-08-31", timezone="America/New_York",
         bars_by_symbol=_bars_by_symbol(),
     )
     save_dataset(dataset, path)
@@ -128,7 +128,7 @@ class TestDatasetInfo:
         response = replay_client.get("/api/replay/dataset")
         assert response.status_code == 200
         body = response.json()
-        assert body["dataset_id"] == "test-2026-08-20"
+        assert body["dataset_id"] == "test-2026-08-31"
         assert body["symbols"] == ["AAPL", "MSFT", "SPY"]
         assert body["total_bars"] == 3
         assert len(body["checksum"]) == 64
@@ -204,7 +204,7 @@ class TestSessionFlow:
         replay_client.post("/api/replay/session/advance")
 
         new_dataset = build_dataset(
-            dataset_id="test-2026-08-21", trading_day="2026-08-21", timezone="America/New_York",
+            dataset_id="test-2026-09-01", trading_day="2026-09-01", timezone="America/New_York",
             bars_by_symbol=_bars_by_symbol(timestamps=TS[:2]),
         )
         save_dataset(new_dataset, dataset_path)
@@ -212,7 +212,7 @@ class TestSessionFlow:
         response = replay_client.post("/api/replay/session/advance")
         assert response.status_code == 200
         body = response.json()
-        assert body["dataset_id"] == "test-2026-08-21"
+        assert body["dataset_id"] == "test-2026-09-01"
         assert body["current_index"] == 0  # reparti de zéro, pas de seek() hors bornes
 
 

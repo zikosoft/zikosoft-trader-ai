@@ -1,4 +1,4 @@
-
+// Client API pour les contextes Replay/Paper (B06).
 
 import { apiGet, ApiError } from "./client";
 
@@ -20,7 +20,14 @@ export async function fetchContexts(): Promise<ContextListResponse> {
   return apiGet<ContextListResponse>("/api/contexts");
 }
 
-
+// Renvoie soit la nouvelle liste (succès), soit `{ confirmationRequired }`
+// si le backend renvoie 409 CONFLICT (changement de contexte sans
+// confirmation, §B06) — l'appelant décide alors d'afficher une confirmation
+// puis de rejouer l'appel avec `confirm: true`, plutôt que de traiter ça
+// comme une erreur générique. Ce cas de figure (un 409 métier attendu, pas
+// une erreur) est la raison pour laquelle cette fonction n'utilise pas
+// simplement `apiPost` — elle a besoin d'inspecter le statut avant de
+// décider s'il s'agit d'une erreur ou d'un résultat normal.
 export async function selectContext(
   kind: ContextKind,
   confirm = false,

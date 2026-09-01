@@ -1,6 +1,34 @@
 # ZikosoftTrader AI — orchestration Docker Compose (B02)
+#
+# Décision utilisateur : tous les services (agents IA, workers déterministes,
+# observabilité) sont déclarés dès le jour 1, même quand leur logique métier
+# n'est encore qu'un squelette (voir AVANCEMENT.md pour l'état réel de
+# chaque brique). Ça évite d'avoir à retoucher l'orchestration à chaque
+# nouvelle brique — on ajoute du code, pas des services.
+#
+# Le socle applicatif (DB, cache, API, frontend, agents, workers) n'a AUCUN
+# profil — il démarre par défaut, sans flag, comme n'importe quel
+# `docker-compose.yml` classique. Seule la stack d'observabilité
+# (Prometheus/Loki/Grafana, B24) est derrière un profil "observability",
+# opt-in, pour ne pas l'imposer à chaque itération de dev.
+#
+# (Correction : une première version mettait aussi le socle derrière
+# un profil "core" — Docker Compose considère alors qu'un service sans
+# `--profile` explicite n'est jamais démarré par défaut, donc un simple
+# `docker compose up -d --build` échouait avec "no service selected". Avec un
+# seul profil optionnel sur l'observabilité, la commande de base fonctionne
+# directement.)
+#
+# Usage :
+#   docker compose up -d --build                          # socle seul (12 services)
+#   docker compose --profile observability up -d --build  # socle + observabilité (15 services)
+#   docker compose config                                  # valide le fichier sans daemon
+#
+# `docker compose config` fonctionne sans daemon Docker actif — utilisé pour
+# valider ce fichier dans cet environnement de build où dockerd est
+# indisponible (voir AVANCEMENT.md, journal B02).
 
-name: zikosoft-trader-ai
+name: zikosofttrader-ai
 
 networks:
   zikosoft-net:
@@ -13,11 +41,42 @@ volumes:
   loki-data:
   prometheus-data:
 
-
+x-agent-common: &agent-common
+  build:
+    context: .
+    dockerfile: agents/Dockerfile
+  # PYTHONPATH est déjà fixé par agents/Dockerfile (ENV) — inutile de le
+  # répéter ici. Chaque service ajoute son propre `environment.SERVICE_NAME`
+  # (utilisé par le heartbeat B22 et par common/healthcheck.py), ce qui
+  # remplacerait un `environment:` défini au niveau de cet ancrage plutôt
+  # que de le fusionner (sémantique de la clé de fusion YAML `<<`).
+  env_file: .env
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    # un agent/worker qui interroge PostgreSQL avant que le schéma
+    # existe (volume neuf, ou volume purgé par `docker compose down -v`)
+    # échouerait avec "relation ... does not exist", même bug que celui
+    # rencontré par Zac sur `backend-api` avant que les migrations ne soient
+    # automatisées ci-dessous (voir service `migrate`) — `service_healthy`
+    # sur `postgres` prouve seulement que le process Postgres accepte des
+    # connexions, jamais que les tables existent.
+    migrate:
+      condition: service_completed_successfully
+  healthcheck:
+    test: ["CMD", "python", "-m", "common.healthcheck"]
+    interval: 10s
+    timeout: 5s
+    retries: 5
+    start_period: 15s
+  networks: [zikosoft-net]
+  restart: unless-stopped
 
 services:
   # ---------------------------------------------------------------------
-  # Database
+  # Socle données (B03, B04)
   # ---------------------------------------------------------------------
   postgres:
     image: postgres:16-alpine
@@ -54,6 +113,33 @@ services:
     networks: [zikosoft-net]
     restart: unless-stopped
 
+  # Migrations Alembic (correctif bug constaté par Zac : un
+  # `docker compose up` sur un volume Postgres neuf démarrait `backend-api`
+  # AVANT que le schéma existe, "relation users does not exist" au premier
+  # login). Service "one-shot" : applique `alembic upgrade head` puis quitte
+  # avec le code 0 — `backend-api` et tous les agents/workers (ancrage
+  # `agent-common` ci-dessus) attendent explicitement cette réussite
+  # (`condition: service_completed_successfully`) avant de démarrer, plus
+  # besoin de lancer la migration à la main après `docker compose up`.
+  # Réutilise l'image `backend/Dockerfile` (alembic + `alembic.ini` y sont
+  # déjà installés, jamais dans l'image agents) — pas de Dockerfile dédié.
+  migrate:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://zikosofttrader:change-me-local-only@postgres:5432/zikosofttrader}
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [zikosoft-net]
+    # PAS de `restart` ici (défaut Compose = "no") : un service one-shot
+    # avec `unless-stopped` ne quitterait jamais proprement aux yeux de
+    # `service_completed_successfully` — il repartirait en boucle après
+    # chaque sortie 0, ce qui bloquerait indéfiniment les services qui en
+    # dépendent.
 
   # ---------------------------------------------------------------------
   # API / frontend
@@ -89,13 +175,18 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
     env_file: .env
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
     ports:
       - "5173:5173"
+    volumes:
+      - ./frontend:/srv/frontend
+      - /srv/frontend/node_modules
     depends_on:
       - backend-api
     healthcheck:
-      # Check the health of the component
-
+      # node:20-slim n'embarque ni curl ni wget — `fetch` global de Node 20
+      # suffit, sans dépendance supplémentaire dans l'image.
       test: ["CMD", "node", "-e", "fetch('http://localhost:5173').then(() => process.exit(0)).catch(() => process.exit(1))"]
       interval: 10s
       timeout: 5s
@@ -104,3 +195,113 @@ services:
     networks: [zikosoft-net]
     restart: unless-stopped
 
+  # ---------------------------------------------------------------------
+  # Agents IA (Market/Strategy/Risk Critic/Execution — squelettes B01-B04,
+  # logique métier en B10/B13/B14/B16). Décision D005 : ces agents ne
+  # prennent AUCUNE décision de risque exécutoire, uniquement le Risk Engine
+  # déterministe ci-dessous en a le droit.
+  # ---------------------------------------------------------------------
+  market-agent:
+    <<: *agent-common
+    command: ["python", "market_agent/main.py"]
+    environment:
+      SERVICE_NAME: market-agent
+
+  strategy-agent:
+    <<: *agent-common
+    command: ["python", "strategy_agent/main.py"]
+    environment:
+      SERVICE_NAME: strategy-agent
+
+  risk-critic-agent:
+    <<: *agent-common
+    command: ["python", "risk_critic_agent/main.py"]
+    environment:
+      SERVICE_NAME: risk-critic-agent
+
+  execution-explanation-agent:
+    <<: *agent-common
+    command: ["python", "execution_explanation_agent/main.py"]
+    environment:
+      SERVICE_NAME: execution-explanation-agent
+
+  # ---------------------------------------------------------------------
+  # Workers déterministes (aucune IA, D005) — même image partagée (D003).
+  # ---------------------------------------------------------------------
+  risk-engine:
+    <<: *agent-common
+    command: ["python", "/srv/workers/risk_engine/main.py"]
+    environment:
+      SERVICE_NAME: risk-engine
+
+  order-worker:
+    <<: *agent-common
+    command: ["python", "/srv/workers/order_worker/main.py"]
+    environment:
+      SERVICE_NAME: order-worker
+
+  # §B18 — manquait ici au moment où `workers/portfolio_worker/` a été créé
+  # (correction du 26/08, même situation que le rattrapage Docker fait
+  # pendant B11) : la décision "tous les services déclarés dès le jour 1"
+  # (voir en-tête de ce fichier) n'avait pas anticipé un worker dédié au
+  # portefeuille avant que B18 ne le construise réellement.
+  portfolio-worker:
+    <<: *agent-common
+    command: ["python", "/srv/workers/portfolio_worker/main.py"]
+    environment:
+      SERVICE_NAME: portfolio-worker
+
+  alert-worker:
+    <<: *agent-common
+    command: ["python", "/srv/workers/alert_worker/main.py"]
+    environment:
+      SERVICE_NAME: alert-worker
+
+  watchdog:
+    <<: *agent-common
+    command: ["python", "/srv/workers/watchdog/main.py"]
+    environment:
+      SERVICE_NAME: watchdog
+
+  # ---------------------------------------------------------------------
+  # Observabilité (B24) — profil séparé, opt-in.
+  # ---------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks: [zikosoft-net]
+    restart: unless-stopped
+    profiles: [observability]
+
+  loki:
+    image: grafana/loki:3.3.2
+    command: ["-config.file=/etc/loki/loki-config.yml"]
+    volumes:
+      - ./infra/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki-data:/loki
+    ports:
+      - "3100:3100"
+    networks: [zikosoft-net]
+    restart: unless-stopped
+    profiles: [observability]
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change-me-local-only}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+    networks: [zikosoft-net]
+    restart: unless-stopped
+    profiles: [observability]

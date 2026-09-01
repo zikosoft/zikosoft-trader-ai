@@ -1,3 +1,15 @@
+"""Indicateurs techniques déterministes partagés entre modules de
+stratégie — sans dépendance externe (pas de numpy/pandas), cohérent avec le
+reste du projet qui évite les dépendances lourdes superflues.
+
+Convention commune à tous les indicateurs de ce fichier : `values` est une
+liste de flottants triée du plus ancien au plus récent (même ordre que les
+`bars` renvoyés par les outils MCP Alpaca, voir agents/common/mcp_session.py,
+B10) ; chaque fonction renvoie une liste de MÊME LONGUEUR que `values`, avec
+`None` pour les points où l'historique est insuffisant — même convention
+que `pandas.Series.rolling(period).mean()`, pour rester familier sans en
+dépendre."""
+
 from __future__ import annotations
 
 
@@ -18,7 +30,20 @@ def simple_moving_average(values: list[float], period: int) -> list[float | None
 
 
 def relative_strength_index(values: list[float], period: int) -> list[float | None]:
-     if period < 1:
+    """RSI (§B12 "RSI Reversal") — moyenne SIMPLE des gains/pertes sur la
+    fenêtre glissante (technique de somme courante identique à
+    `simple_moving_average` ci-dessus), pas le lissage exponentiel de Wilder
+    utilisé par la convention "RSI classique" : choix délibéré pour rester
+    cohérent avec le seul autre indicateur du fichier (aucune dépendance
+    numpy/pandas) et pour qu'un résultat reste vérifiable à la main dans les
+    tests, au prix d'une légère différence numérique avec un RSI Wilder
+    "manuel" — documenté ici plutôt que passé sous silence.
+
+    Convention de padding différente de `simple_moving_average` : un RSI a
+    besoin de `period` VARIATIONS (donc `period + 1` clôtures) avant son
+    premier point exploitable — `result[period]` est le premier point non
+    `None`, pas `result[period - 1]`."""
+    if period < 1:
         raise ValueError("period doit être >= 1")
 
     result: list[float | None] = [None] * len(values)

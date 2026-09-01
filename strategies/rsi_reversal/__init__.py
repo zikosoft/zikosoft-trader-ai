@@ -1,3 +1,5 @@
+"""Package de la stratégie RSI Reversal — deuxième stratégie prédéfinie
+livrée pour le registre B11, à côté de `moving_average_crossover` (§B12)."""
 
 from __future__ import annotations
 

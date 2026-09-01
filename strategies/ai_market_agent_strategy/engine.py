@@ -1,3 +1,23 @@
+"""B12 — AI Market Agent Strategy : première stratégie IA réelle du projet
+(`required_capabilities=["ai"]`, voir `definition.py`). Contrairement aux
+deux stratégies déterministes (`moving_average_crossover`, `rsi_reversal`),
+`evaluate()` accepte un troisième argument obligatoire par mot-clé,
+`ai_provider` — c'est le signal que le Strategy Agent (B13) utilise pour
+distinguer les deux familles de moteur (voir `agents/strategy_agent/main.py`,
+qui construit un `AIProvider` uniquement pour les stratégies dont le
+manifeste déclare `required_capabilities=["ai"]`, et l'injecte ici).
+
+Sortie structurée (D022, même discipline que B10/B13/B14) : la sortie brute
+de `AIProvider.structured_complete()` est d'abord validée ICI (schéma +
+protections métier), puis REVALIDÉE une seconde fois en amont par
+`StrategyProposal` (défense en profondeur, `agents/strategy_agent/main.py`)
+avant tout enregistrement/publication — deux couches indépendantes, comme
+pour `RiskCritique` en B14.
+
+**Jamais de signal fabriqué** : si l'IA est indisponible (pas de clé, quota
+dépassé, timeout) ou répond hors schéma, repli HOLD explicite avec
+`risk_flags=["ai_unavailable"]`/`["invalid_ai_output"]` — même ethos que
+`risk_critic_agent._fallback_critique` (B14)."""
 
 from __future__ import annotations
 

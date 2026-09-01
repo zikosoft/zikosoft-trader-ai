@@ -1,4 +1,4 @@
-// Client API pour le kill switch trading (`backend/app/routers/kill_switch.py`).
+// Client API pour le kill switch trading (§B31 — `backend/app/routers/kill_switch.py`).
 
 import { apiGet, apiPost } from "./client";
 

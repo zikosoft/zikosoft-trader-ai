@@ -1,0 +1,27 @@
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["backend/alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+# FastAPI's Depends()/Cookie()/Query()/... are designed to be called as
+# argument defaults — that's the framework's own dependency-injection
+# pattern, not the mutable-default-argument footgun B008 exists to catch
+# (B05, backend/app/auth.py + routers/auth.py).
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Cookie", "fastapi.Query", "fastapi.Header", "fastapi.Path", "fastapi.Body"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.pytest.ini_options]
+# "." (racine du monorepo) ajouté en B11 pour que `strategies.*` (modules
+# de stratégie développeur, dossier `strategies/`) soit importable en test
+# par chemin absolu — même besoin que les containers Docker backend/agents,
+# voir PYTHONPATH dans backend/Dockerfile et agents/Dockerfile.
+pythonpath = [".", "shared", "backend", "agents", "workers"]
+testpaths = ["tests"]

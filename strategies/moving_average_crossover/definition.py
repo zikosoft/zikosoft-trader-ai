@@ -6,6 +6,12 @@ from __future__ import annotations
 
 from shared.strategy_registry import StrategyDefinition
 
+# Pas de champ "symbole" ici : c'est `Strategy.symbols` (liste, colonne
+# dédiée du modèle DB depuis B03) qui porte les symboles surveillés par une
+# INSTANCE de cette stratégie (voir backend/app/strategy_instances.py, B12
+# CRUD) — ces paramètres s'appliquent identiquement à chacun d'eux. Le futur
+# Strategy Agent (B13) appellera `evaluate()` une fois par symbole de
+# `instance.symbols`, avec les mêmes `params` à chaque fois.
 PARAMETER_SCHEMA = {
     "type": "object",
     "properties": {
