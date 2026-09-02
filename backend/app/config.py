@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     # V1 : Paper uniquement, verrouillé (§B07 "Mode Paper verrouillé") — pas
     # de variable pour basculer vers l'API live, intentionnellement.
     alpaca_paper_base_url: str = "https://paper-api.alpaca.markets"
+    # Alpaca market-data host used for option-chain snapshots. Trading and
+    # account calls remain locked to the Paper Trading API above.
+    alpaca_data_base_url: str = "https://data.alpaca.markets"
     alpaca_request_timeout_seconds: float = 10.0
 
     ai_provider: str = "claude"

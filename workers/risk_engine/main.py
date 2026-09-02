@@ -8,9 +8,9 @@ Comme `market_agent`/`strategy_agent`/`risk_critic_agent` (B10/B13/B14), ce
 module n'a pas accès aux modèles ORM de `backend` (image Docker séparée,
 §B01) — tout passe par du SQL brut via `text()`.
 
-**Discipline anti-fabrication (même esprit que B14) : 16 contrôles sont
+**Discipline anti-fabrication (même esprit que B14) : les contrôles sont
 évalués à chaque décision, TOUS, jamais un sous-ensemble silencieusement
-sauté.** 11 d'entre eux s'appuient sur des données réellement disponibles
+sauté.** Les contrôles communs s'appuient sur des données réellement disponibles
 aujourd'hui (contexte, compte, statut stratégie, fraîcheur, limites de
 compte, protection obligatoire, doublon, cooldown, kill switch, politique
 d'approbation). **5 ne peuvent PAS être vérifiés honnêtement — pas
@@ -26,21 +26,17 @@ d'un snapshot), et le déclarent explicitement "impossible à vérifier", ce
 qui force au minimum un `REQUIRES_APPROVAL` — jamais un `APPROVED`
 silencieux sur une limite qui n'existe pas.
 
-**Conséquence assumée et documentée dans AVANCEMENT.md : ce Risk Engine V1
-ne peut STRUCTURELLEMENT JAMAIS produire `APPROVED`, même après B17 ET B18**
-— le meilleur cas est `REQUIRES_APPROVAL` (les 5 contrôles "impossible à
-vérifier" y contribuent toujours). `APPROVED` ne redeviendra atteignable
-qu'avec une FUTURE brique qui configure de véritables limites de risque
-(daily-loss-limit, exposure-limit, ...) quelque part dans le système — ni
-B17 ni B18 n'en construisent. C'est un choix délibéré (mieux vaut
-sur-solliciter une revue humaine que fabriquer une sécurité qui n'existe
-pas), pas un bug — voir le risque correspondant dans AVANCEMENT.md (R17,
-corrigé le 26/08 : ne "se referme" pas avec B17/B18, contrairement à sa
-formulation d'origine).
+**Pour les commandes equity**, les cinq limites historiquement absentes
+restent `REQUIRES_APPROVAL` comme avant. **Pour une commande option**, le
+contrat contient déjà une prime, une quantité et une perte maximale : les
+contrôles dédiés les vérifient contre les limites Paper configurées et le
+snapshot de buying power, sans relâcher le kill switch ni les contrôles
+communs. Ainsi un ordre optionnel peut devenir `APPROVED` uniquement quand
+les preuves nécessaires sont présentes.
 
 **`ADJUSTED` n'est jamais produit par cette V1** (voir
-`shared.risk_decision`) — aucune logique de dimensionnement d'ordre
-n'existe encore (B17).
+`shared.risk_decision`) — le dimensionnement options est calculé par le
+sélecteur partagé puis revalidé ici, sans ajustement silencieux.
 
 **Ajout B28 (D073) : chaque décision écrit AUSSI une ligne `agent_messages`**
 (même transaction que `RiskDecision`) — même principe que
@@ -68,6 +64,7 @@ from sqlalchemy.engine import Engine
 
 from shared.eventbus import EventConsumer, publish_event
 from shared.events import EventEnvelope, Streams
+from shared.options import OptionInstrument
 from shared.risk_decision import RiskDecisionResult
 from shared.risk_governance import get_trading_kill_switch_engaged
 
@@ -89,6 +86,16 @@ MAX_CRITIQUE_AGE_SECONDS = 15 * 60
 # §B15 "Cooldown" — délai minimum entre deux décisions de risque pour une
 # même stratégie, configurable (voir .env.example).
 COOLDOWN_SECONDS = int(os.environ.get("RISK_ENGINE_COOLDOWN_SECONDS", "60"))
+
+# Conservative, server-side limits for the one-leg long-options demo. These
+# are deliberately independent from Claude/AI budgets and from the existing
+# equity controls. They can be tightened in the Paper environment without a
+# code change.
+OPTIONS_MAX_PREMIUM_PER_ORDER = float(os.environ.get("OPTIONS_MAX_PREMIUM_PER_ORDER", "500"))
+OPTIONS_MAX_CONTRACTS = int(os.environ.get("OPTIONS_MAX_CONTRACTS", "1"))
+OPTIONS_MAX_SPREAD_PCT = float(os.environ.get("OPTIONS_MAX_SPREAD_PCT", "0.20"))
+OPTIONS_MIN_DTE = int(os.environ.get("OPTIONS_MIN_DTE", "7"))
+OPTIONS_MAX_DTE = int(os.environ.get("OPTIONS_MAX_DTE", "30"))
 
 # Dupliqués depuis `backend/app/strategy_instances.py` (même pattern que
 # B14/`_concentration_others` — re-vérification en défense en profondeur,
@@ -170,6 +177,16 @@ _POSITION_SNAPSHOT_SQL = text(
     """
     SELECT 1 FROM positions_snapshots
     WHERE execution_context_id = :execution_context_id AND symbol = :symbol
+    ORDER BY snapshot_at DESC
+    LIMIT 1
+    """
+)
+
+_LATEST_PORTFOLIO_RISK_SQL = text(
+    """
+    SELECT buying_power, daily_pl
+    FROM portfolio_snapshots
+    WHERE execution_context_id = :execution_context_id
     ORDER BY snapshot_at DESC
     LIMIT 1
     """
@@ -297,6 +314,80 @@ def _has_position_snapshot(engine: Engine, *, execution_context_id: uuid.UUID, s
     return row is not None
 
 
+def _latest_portfolio_risk(engine: Engine, *, execution_context_id: uuid.UUID) -> dict | None:
+    """Return the latest account-risk values written by Portfolio Worker.
+
+    A missing snapshot is not treated as a fabricated zero balance: Paper
+    options remain reviewable but cannot be silently approved without a
+    buying-power observation.
+    """
+    with engine.connect() as conn:
+        row = conn.execute(_LATEST_PORTFOLIO_RISK_SQL, {"execution_context_id": execution_context_id}).mappings().first()
+    return dict(row) if row is not None else None
+
+
+def _evaluate_option_controls(
+    engine: Engine,
+    *,
+    payload: dict,
+    strategy: dict,
+    execution_context_kind: str | None,
+) -> list[tuple[str, str]]:
+    """Validate the fully selected long option before Order Worker.
+
+    This is intentionally a pure, deterministic gate. It never selects a
+    contract and never calls Alpaca; selection happens upstream and the
+    resulting instrument is revalidated here as a defence-in-depth boundary.
+    """
+    raw = payload.get("option_instrument")
+    if not raw:
+        return []
+    findings: list[tuple[str, str]] = []
+    try:
+        instrument = OptionInstrument.model_validate(raw)
+    except Exception as exc:  # noqa: BLE001 - malformed upstream data is a risk rejection
+        return [(REJECTED, f"option instrument invalide : {exc}")]
+
+    underlying = str(payload.get("symbol") or "").upper()
+    if instrument.underlying_symbol.upper() != underlying:
+        findings.append((REJECTED, "le sous-jacent de l'option ne correspond pas au symbole de la stratégie"))
+
+    proposed_signal = payload.get("proposed_signal")
+    expected_type = "call" if proposed_signal == "BUY" else "put" if proposed_signal == "SELL" else None
+    if expected_type is None or instrument.option_type != expected_type:
+        findings.append((REJECTED, "le type call/put ne correspond pas au signal directionnel"))
+
+    dte = (instrument.expiration_date - datetime.now(UTC).date()).days
+    if dte < OPTIONS_MIN_DTE or dte > OPTIONS_MAX_DTE:
+        findings.append(
+            (REJECTED, f"expiration option hors fenêtre ({dte} DTE, attendu {OPTIONS_MIN_DTE}-{OPTIONS_MAX_DTE})")
+        )
+    if instrument.quantity > OPTIONS_MAX_CONTRACTS or not float(instrument.quantity).is_integer():
+        findings.append((REJECTED, f"quantité optionnelle supérieure à la limite ({OPTIONS_MAX_CONTRACTS} contrat(s))"))
+    if instrument.bid_price > instrument.ask_price:
+        findings.append((REJECTED, "cotation option invalide (bid supérieur à ask)"))
+    if instrument.spread_pct > OPTIONS_MAX_SPREAD_PCT:
+        findings.append((REJECTED, f"spread option trop large ({instrument.spread_pct:.2%}, maximum {OPTIONS_MAX_SPREAD_PCT:.2%})"))
+    expected_premium = instrument.ask_price * instrument.contract_size * instrument.quantity
+    if instrument.estimated_premium > OPTIONS_MAX_PREMIUM_PER_ORDER or instrument.max_loss > OPTIONS_MAX_PREMIUM_PER_ORDER:
+        findings.append(
+            (REJECTED, f"prime/perte maximale optionnelle supérieure à {OPTIONS_MAX_PREMIUM_PER_ORDER:.2f}")
+        )
+    if abs(instrument.estimated_premium - expected_premium) > 0.05 or abs(instrument.max_loss - instrument.estimated_premium) > 0.05:
+        findings.append((REJECTED, "prime estimée et perte maximale ne correspondent pas au prix ask/quantité"))
+
+    # In PAPER, compare the debit to the latest real snapshot when available.
+    # Replay has no brokerage account and is handled by Order Worker as a
+    # deferred simulation.
+    if execution_context_kind == "PAPER":
+        snapshot = _latest_portfolio_risk(engine, execution_context_id=strategy["execution_context_id"])
+        if snapshot is None or snapshot.get("buying_power") is None:
+            findings.append((REQUIRES_APPROVAL, "buying power indisponible : attendre un portfolio_snapshot Paper récent"))
+        elif float(snapshot["buying_power"]) < instrument.estimated_premium:
+            findings.append((REJECTED, "buying power Paper insuffisant pour la prime optionnelle"))
+    return findings
+
+
 def _evaluate_controls(
     engine: Engine,
     redis_client: redis.Redis,
@@ -410,6 +501,19 @@ def _evaluate_controls(
     if "requires_human_approval" in proposal_risk_flags:
         findings.append((REQUIRES_APPROVAL, "approbation humaine requise par la proposition d'origine (requires_human_approval)"))
 
+    # Options have a concrete debit and quantity, so they use the dedicated
+    # gates above instead of the legacy equity controls that intentionally
+    # reported an unverifiable notional in V1.
+    option_findings = _evaluate_option_controls(
+        engine,
+        payload=payload,
+        strategy=strategy,
+        execution_context_kind=execution_context_kind,
+    )
+    findings.extend(option_findings)
+    if payload.get("option_instrument"):
+        return findings
+
     # 11-15. Cinq contrôles honnêtement IMPOSSIBLES à vérifier en V1 — pas
     #        seulement "tant que B18 n'existe pas" (correction du 26/08, voir
     #        D042 dans AVANCEMENT.md §37 et R17). Avant cette correction, les
@@ -493,6 +597,7 @@ def _record_and_publish(
     strategy_id: uuid.UUID,
     symbol: str | None,
     last_close: float | None,
+    option_instrument: dict | None,
     market_data_timestamp: str | None,
     correlation_id: uuid.UUID,
     causation_id: uuid.UUID,
@@ -533,6 +638,7 @@ def _record_and_publish(
                             "strategy_id": str(strategy_id),
                             "symbol": symbol,
                             "market_data_timestamp": market_data_timestamp,
+                            "option_instrument": option_instrument,
                         }
                     ),
                 },
@@ -559,6 +665,7 @@ def _record_and_publish(
             # de la valeur déjà reçue dans `risk.critique.completed` —
             # jamais recalculé ici (non-IA, B15 ne regarde pas les prix).
             "last_close": last_close,
+            "option_instrument": option_instrument,
         },
     )
     publish_event(redis_client, Streams.RISK_VALIDATION_COMPLETED, envelope)
@@ -619,6 +726,7 @@ def _process_envelope(engine: Engine, redis_client: redis.Redis, envelope: Event
         strategy_id=strategy_id,
         symbol=symbol,
         last_close=payload.get("last_close"),
+        option_instrument=payload.get("option_instrument"),
         market_data_timestamp=market_data_timestamp,
         correlation_id=envelope.correlation_id,
         causation_id=envelope.event_id,

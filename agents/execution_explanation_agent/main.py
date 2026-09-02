@@ -13,17 +13,11 @@ n'ajoute aucune raison, ne change jamais un `REJECTED`/`REQUIRES_APPROVAL`
 en quoi que ce soit d'autre — il reformule en langage naturel des faits
 déjà figés par B15. Voir `shared/shared/explanation.py`.
 
-**Conséquence honnête d'une limite déjà documentée en B15 (D033, R17) :
-tant que B17/B18 n'existent pas, le Risk Engine ne produit jamais
-`APPROVED`** — le chemin "préparer une commande d'ordre" ci-dessous est
-donc écrit et testé (construction directe d'un scénario `APPROVED` dans
-les tests, même principe que les autres cas limites de ce projet), mais ne
-sera jamais exercé par le vrai pipeline tant que ces bricks manquent.
-
-**Deuxième limite honnête, propre à B16 : la commande d'ordre publiée ne
-porte JAMAIS de `notional`/`quantity` réel** — aucune logique de
-dimensionnement d'ordre n'existe encore (B17). `sizing_pending: true` le
-signale explicitement plutôt que de fabriquer une valeur.
+Les commandes equity conservent le comportement historique
+`sizing_pending=true` tant qu'aucun dimensionnement n'est disponible. Pour
+les options, un `OptionInstrument` déjà sélectionné fournit une quantité
+entière et une prime limite ; il est propagé avec `sizing_pending=false` et
+revalidé par le Risk Engine et l'Order Worker avant l'appel Paper.
 
 Comme `market_agent`/`strategy_agent`/`risk_critic_agent` (B10/B13/B14),
 ce module n'a pas accès aux modèles ORM de `backend` (image Docker
@@ -63,6 +57,7 @@ from shared.ai_provider import (
 from shared.eventbus import EventConsumer, publish_event
 from shared.events import EventEnvelope, Streams
 from shared.explanation import Explanation
+from shared.options import OptionInstrument
 
 logger = logging.getLogger("execution-explanation-agent")
 
@@ -246,6 +241,7 @@ def _build_order_command_payload(
     explanation_id: uuid.UUID,
     adjustments: dict,
     reference_price: float | None,
+    option_instrument: dict | None = None,
 ) -> dict[str, Any]:
     """"Commande stricte" — porte UNIQUEMENT ce qui est déjà décidé/connu,
     jamais une valeur inventée. `notional`/`quantity` restent `None` avec
@@ -258,23 +254,28 @@ def _build_order_command_payload(
     calculer les jambes d'un bracket order à partir de `stop_loss_pct`/
     `take_profit_pct`, jamais recalculée ici."""
     params = strategy.get("parameters") or {}
-    side = "buy" if proposed_signal == "BUY" else "sell"
+    option = OptionInstrument.model_validate(option_instrument) if option_instrument else None
+    # A SELL directional signal is represented by buying a put; the broker
+    # side therefore remains ``buy`` for both long-call and long-put orders.
+    side = "buy" if option or proposed_signal == "BUY" else "sell"
     return {
         "strategy_id": str(strategy["strategy_id"]),
         "risk_decision_id": str(risk_decision_id),
         "agent_decision_id": str(agent_decision_id),
         "explanation_agent_decision_id": str(explanation_id),
-        "symbol": symbol,
+        "symbol": option.symbol if option else symbol,
         "side": side,
-        "order_type": "market",
+        "asset_class": "option" if option else "equity",
+        "order_type": "limit" if option else "market",
         "time_in_force": "day",
         "stop_loss_pct": params.get("stop_loss_pct"),
         "take_profit_pct": params.get("take_profit_pct"),
-        "reference_price": reference_price,
+        "reference_price": option.limit_price if option else reference_price,
         "notional": None,
-        "quantity": None,
-        "sizing_pending": True,
+        "quantity": option.quantity if option else None,
+        "sizing_pending": False if option else True,
         "adjustments": adjustments,
+        "option_instrument": option.model_dump(mode="json") if option else None,
     }
 
 
@@ -293,6 +294,7 @@ def _record_and_publish(
     outcome = payload.get("outcome")
     reasons = payload.get("reasons") or []
     adjustments = payload.get("adjustments") or {}
+    option_instrument = payload.get("option_instrument")
     symbol = payload.get("symbol")
     risk_decision_id = uuid.UUID(str(payload["risk_decision_id"]))
     agent_decision_id = uuid.UUID(str(payload["agent_decision_id"]))
@@ -323,6 +325,7 @@ def _record_and_publish(
                         "source": source,
                         "reasons": reasons,
                         "adjustments": adjustments,
+                        "option_instrument": option_instrument,
                     }
                 ),
                 "risk_flags": json.dumps([]),
@@ -367,6 +370,7 @@ def _record_and_publish(
                         "market_data_timestamp": critique.get("market_data_timestamp"),
                         "source": source,
                         "order_command_published": order_command_published,
+                        "option_instrument": option_instrument,
                     }
                 ),
             },
@@ -387,6 +391,7 @@ def _record_and_publish(
             "outcome": outcome,
             "novice_summary": explanation.novice_summary,
             "expert_summary": explanation.expert_summary,
+            "option_instrument": option_instrument,
         },
     )
     publish_event(redis_client, Streams.SYSTEM_EVENTS, envelope)
@@ -413,6 +418,7 @@ def _record_and_publish(
                 explanation_id=explanation_id,
                 adjustments=adjustments,
                 reference_price=payload.get("last_close"),
+                option_instrument=option_instrument,
             ),
         )
         publish_event(redis_client, Streams.ORDER_COMMANDS, order_envelope)

@@ -95,6 +95,53 @@ class AlpacaAsset:
 
 
 @dataclass(frozen=True)
+class AlpacaOptionContract:
+    """Contract catalogue returned by ``/v2/options/contracts``.
+
+    The fields mirror Alpaca's documented option-contract response while
+    keeping the model deliberately small.  Option symbols are stored as the
+    canonical/OCC symbol so the later Order Worker can submit the same value
+    without another translation step.
+    """
+
+    id: str
+    symbol: str
+    name: str
+    status: str
+    tradable: bool
+    expiration_date: str
+    root_symbol: str
+    underlying_symbol: str
+    option_type: str
+    strike_price: str
+    size: int
+    open_interest: int | None = None
+    close_price: str | None = None
+
+
+@dataclass(frozen=True)
+class AlpacaOptionSnapshot:
+    """Latest quote/trade snapshot for one option contract.
+
+    Alpaca's market-data API uses camelCase keys (``latestQuote`` and
+    ``latestTrade``); the client normalizes them here so all downstream code
+    can use stable snake_case names.
+    """
+
+    symbol: str
+    bid_price: float | None
+    ask_price: float | None
+    last_trade_price: float | None
+    bid_size: int | None = None
+    ask_size: int | None = None
+    implied_volatility: float | None = None
+    delta: float | None = None
+    gamma: float | None = None
+    theta: float | None = None
+    vega: float | None = None
+
+
+@dataclass(frozen=True)
 class AlpacaPosition:
     """Sous-ensemble des champs de `GET /v2/positions` réellement utilisés
     (§B18) — vus via https://docs.alpaca.markets/us/reference/getallopenpositions.md.
@@ -119,11 +166,13 @@ class AlpacaClient:
         secret_key: str,
         *,
         base_url: str | None = None,
+        data_base_url: str | None = None,
         timeout: float | None = None,
     ) -> None:
         self._api_key = api_key
         self._secret_key = secret_key
         self._base_url = (base_url or settings.alpaca_paper_base_url).rstrip("/")
+        self._data_base_url = (data_base_url or settings.alpaca_data_base_url).rstrip("/")
         self._timeout = timeout if timeout is not None else settings.alpaca_request_timeout_seconds
 
     def get_account(self) -> AlpacaAccount:
@@ -227,6 +276,201 @@ class AlpacaClient:
             ]
         except (ValueError, KeyError) as exc:
             raise AlpacaUpstreamError("réponse Alpaca illisible (champ manquant)") from exc
+
+    def get_option_contracts(
+        self,
+        *,
+        underlying_symbol: str,
+        status: str = "active",
+        expiration_date_gte: str | None = None,
+        expiration_date_lte: str | None = None,
+        option_type: str | None = None,
+        strike_price_gte: float | None = None,
+        strike_price_lte: float | None = None,
+        limit: int = 100,
+    ) -> list[AlpacaOptionContract]:
+        """Fetch option contracts from Alpaca's Trading API catalogue.
+
+        This is a read-only discovery call.  It intentionally uses the Paper
+        Trading host (the same authenticated host as ``get_assets``), while
+        quote snapshots use ``get_option_chain`` on Alpaca's market-data host.
+        Pagination is followed up to the requested limit so callers receive a
+        deterministic bounded result rather than an arbitrary first page.
+        """
+        if not underlying_symbol.strip():
+            raise ValueError("underlying_symbol must not be empty")
+        bounded_limit = max(1, min(int(limit), 1000))
+        params: dict[str, str | int | float] = {
+            "underlying_symbols": underlying_symbol.strip().upper(),
+            "status": status,
+            "limit": min(bounded_limit, 100),
+        }
+        optional = {
+            "expiration_date_gte": expiration_date_gte,
+            "expiration_date_lte": expiration_date_lte,
+            "type": option_type,
+            "strike_price_gte": strike_price_gte,
+            "strike_price_lte": strike_price_lte,
+        }
+        params.update({key: value for key, value in optional.items() if value is not None})
+
+        contracts: list[AlpacaOptionContract] = []
+        page_token: str | None = None
+        while len(contracts) < bounded_limit:
+            if page_token:
+                params["page_token"] = page_token
+            response = self._request_json("GET", "/v2/options/contracts", params=params)
+            body = response
+            if not isinstance(body, dict) or not isinstance(body.get("option_contracts"), list):
+                raise AlpacaUpstreamError("réponse Alpaca illisible (option_contracts manquant)")
+            try:
+                for item in body["option_contracts"]:
+                    contracts.append(
+                        AlpacaOptionContract(
+                            id=str(item["id"]),
+                            symbol=str(item["symbol"]),
+                            name=str(item.get("name") or item["symbol"]),
+                            status=str(item["status"]),
+                            tradable=bool(item["tradable"]),
+                            expiration_date=str(item["expiration_date"]),
+                            root_symbol=str(item.get("root_symbol") or item.get("underlying_symbol") or underlying_symbol.upper()),
+                            underlying_symbol=str(item.get("underlying_symbol") or underlying_symbol.upper()),
+                            option_type=str(item["type"]).lower(),
+                            strike_price=str(item["strike_price"]),
+                            size=int(item.get("size", 100)),
+                            open_interest=int(item["open_interest"]) if item.get("open_interest") is not None else None,
+                            close_price=str(item["close_price"]) if item.get("close_price") is not None else None,
+                        )
+                    )
+            except (TypeError, ValueError, KeyError) as exc:
+                raise AlpacaUpstreamError("réponse Alpaca illisible (contrat option incomplet)") from exc
+            contracts = contracts[:bounded_limit]
+            page_token = body.get("page_token")
+            if not page_token or not body["option_contracts"]:
+                break
+        return contracts
+
+    def get_option_chain(
+        self,
+        *,
+        underlying_symbol: str,
+        option_type: str | None = None,
+        expiration_date_gte: str | None = None,
+        expiration_date_lte: str | None = None,
+        strike_price_gte: float | None = None,
+        strike_price_lte: float | None = None,
+        feed: str | None = None,
+        limit: int = 100,
+    ) -> list[AlpacaOptionSnapshot]:
+        """Fetch the latest option-chain snapshots from Alpaca market data."""
+        if not underlying_symbol.strip():
+            raise ValueError("underlying_symbol must not be empty")
+        params: dict[str, str | int | float] = {"limit": max(1, min(int(limit), 1000))}
+        optional = {
+            "type": option_type,
+            "expiration_date_gte": expiration_date_gte,
+            "expiration_date_lte": expiration_date_lte,
+            "strike_price_gte": strike_price_gte,
+            "strike_price_lte": strike_price_lte,
+            "feed": feed,
+        }
+        params.update({key: value for key, value in optional.items() if value is not None})
+        body = self._request_json(
+            "GET",
+            f"/v1beta1/options/snapshots/{underlying_symbol.strip().upper()}",
+            params=params,
+            data_api=True,
+        )
+        if not isinstance(body, dict):
+            raise AlpacaUpstreamError("réponse Alpaca illisible (chaîne options inattendue)")
+        # The documented endpoint currently returns a symbol-keyed object;
+        # tolerate a future/enveloped ``{"snapshots": {...}}`` response as
+        # well so the read-only boundary remains forward compatible.
+        if isinstance(body.get("snapshots"), dict):
+            body = body["snapshots"]
+
+        snapshots: list[AlpacaOptionSnapshot] = []
+        try:
+            for symbol, raw in body.items():
+                if not isinstance(raw, dict):
+                    continue
+                quote = raw.get("latestQuote") or raw.get("latest_quote") or {}
+                trade = raw.get("latestTrade") or raw.get("latest_trade") or {}
+                greeks = raw.get("greeks") or {}
+
+                def _float(source: dict, *keys: str) -> float | None:
+                    for key in keys:
+                        value = source.get(key)
+                        if value is not None:
+                            try:
+                                return float(value)
+                            except (TypeError, ValueError):
+                                return None
+                    return None
+
+                def _int(source: dict, *keys: str) -> int | None:
+                    for key in keys:
+                        value = source.get(key)
+                        if value is not None:
+                            try:
+                                return int(value)
+                            except (TypeError, ValueError):
+                                return None
+                    return None
+
+                snapshots.append(
+                    AlpacaOptionSnapshot(
+                        symbol=str(symbol),
+                        bid_price=_float(quote, "bp", "bid_price", "bidPrice"),
+                        ask_price=_float(quote, "ap", "ask_price", "askPrice"),
+                        last_trade_price=_float(trade, "p", "price"),
+                        bid_size=_int(quote, "bs", "bid_size", "bidSize"),
+                        ask_size=_int(quote, "as", "ask_size", "askSize"),
+                        implied_volatility=_float(greeks, "impliedVolatility", "implied_volatility"),
+                        delta=_float(greeks, "delta"),
+                        gamma=_float(greeks, "gamma"),
+                        theta=_float(greeks, "theta"),
+                        vega=_float(greeks, "vega"),
+                    )
+                )
+        except (TypeError, ValueError) as exc:
+            raise AlpacaUpstreamError("réponse Alpaca illisible (snapshot option incomplet)") from exc
+        return snapshots
+
+    def _request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, str | int | float] | None = None,
+        data_api: bool = False,
+    ) -> object:
+        """Authenticated JSON request shared by the read-only option calls."""
+        base_url = self._data_base_url if data_api else self._base_url
+        try:
+            response = httpx.request(
+                method,
+                f"{base_url}{path}",
+                headers={
+                    "APCA-API-KEY-ID": self._api_key,
+                    "APCA-API-SECRET-KEY": self._secret_key,
+                },
+                params=params,
+                timeout=self._timeout,
+            )
+        except httpx.TimeoutException as exc:
+            raise AlpacaUpstreamError("délai dépassé en contactant Alpaca") from exc
+        except httpx.HTTPError as exc:
+            raise AlpacaUpstreamError(f"erreur réseau en contactant Alpaca : {exc}") from exc
+
+        if response.status_code in (401, 403):
+            raise AlpacaAuthError("identifiants Alpaca refusés")
+        if response.status_code != 200:
+            raise AlpacaUpstreamError(f"Alpaca a répondu {response.status_code} de façon inattendue")
+        try:
+            return response.json()
+        except ValueError as exc:
+            raise AlpacaUpstreamError("réponse Alpaca illisible (JSON attendu)") from exc
 
     def get_positions(self) -> list[AlpacaPosition]:
         """`GET /v2/positions` (§B18) — liste des positions ouvertes du

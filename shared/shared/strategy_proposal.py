@@ -21,6 +21,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .options import OptionInstrument
+
 Signal = Literal["BUY", "SELL", "HOLD"]
 
 
@@ -35,3 +37,4 @@ class StrategyProposal(BaseModel):
     confidence: int = Field(ge=0, le=10000)
     reasoning: str = Field(min_length=1, max_length=4000)
     risk_flags: list[str] = Field(default_factory=list)
+    option_instrument: OptionInstrument | None = None

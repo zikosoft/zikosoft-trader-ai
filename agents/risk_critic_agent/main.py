@@ -447,6 +447,7 @@ def _record_and_publish(
             # pas préventivement).
             "last_close": last_close,
             "proposal_risk_flags": payload.get("risk_flags") or [],
+            "option_instrument": payload.get("option_instrument"),
         },
     )
     publish_event(redis_client, Streams.RISK_CRITIQUE_COMPLETED, envelope)

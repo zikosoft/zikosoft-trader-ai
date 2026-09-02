@@ -38,20 +38,11 @@ fois (voir recherche consignée en journal §39) : la déduplication finale
 est donc à double niveau, DB (contrainte unique) ET Alpaca lui-même
 (`client_order_id`), jamais un seul point de défaillance.
 
-**Vérité honnête sur "Aucun ordre live possible" (test P0) : c'est le
-comportement RÉEL et PERMANENT de cette V1, pas un cas limite.** B16
-publie TOUJOURS `sizing_pending=true` (aucune logique de dimensionnement
-d'ordre n'existe encore) — `_determine_pre_alpaca_status` court-circuite
-alors systématiquement vers `blocked_sizing_pending` AVANT tout appel
-Alpaca. Le chemin "placer un ordre pour de vrai" (bracket, appel HTTP,
-webhooks) est entièrement écrit et testé, mais — comme le chemin
-`order.command.prepared` de B16 avant lui, lui-même hérité de
-l'impossibilité pour B15 de produire `APPROVED` tant que B17/B18
-manquaient (D033/R17) — reste structurellement INATTEIGNABLE par le vrai
-pipeline tant qu'aucune brique ne fixe `sizing_pending=false` avec un
-`notional`/`quantity` réel. Testé en construisant directement un
-`OrderCommand` avec `sizing_pending=false` (même principe que B16 testant
-son chemin `APPROVED` par construction directe).
+**Le chemin Paper options est désormais dimensionné en amont.** B16 publie
+`sizing_pending=false` uniquement lorsqu'un `OptionInstrument` validé fournit
+une quantité entière et une prime limite ; `_determine_pre_alpaca_status`
+continue de bloquer toute commande equity en attente de sizing. Les options
+arrivent à Alpaca comme ordres limit simples, sans jambes bracket equity.
 
 **Bracket order toujours bien défini en pratique (finding B17, voir
 AVANCEMENT.md §37) :** une décision `APPROVED` ne peut provenir QUE d'une
@@ -532,7 +523,11 @@ def _process_ready_to_place(
     api_key: str,
     secret_key: str,
 ) -> None:
-    order_class, take_profit_leg, stop_loss_leg = _build_bracket_legs(command)
+    # Alpaca options orders use a simple single-leg limit order. Equity
+    # commands retain the existing bracket behavior; option commands never
+    # receive equity-only take-profit/stop-loss legs.
+    is_option = command.asset_class == "option"
+    order_class, take_profit_leg, stop_loss_leg = (None, None, None) if is_option else _build_bracket_legs(command)
 
     order_id = uuid.uuid4()
     try:
@@ -589,6 +584,7 @@ def _process_ready_to_place(
             time_in_force=command.time_in_force,
             qty=command.quantity,
             notional=command.notional,
+            limit_price=command.option_instrument.limit_price if command.option_instrument else None,
             order_class=order_class,
             take_profit=take_profit_leg,
             stop_loss=stop_loss_leg,
@@ -818,14 +814,8 @@ def _cancel_orders_for_kill_switch(engine: Engine, redis_client: redis.Redis, ac
     (`backend/app/kill_switch.py::engage`) ne fait que suspendre les
     stratégies et poser le flag, jamais un appel Alpaca lui-même.
 
-    **Honnêteté sur la portée réelle en V1 (voir D040, AVANCEMENT.md) :**
-    B16 publie aujourd'hui TOUJOURS `sizing_pending=true`, donc AUCUN ordre
-    n'atteint jamais `provider_order_id IS NOT NULL` par le vrai pipeline —
-    ce balayage ne trouve donc structurellement rien à annuler tant que ce
-    verrou amont n'est pas levé par une future brique de dimensionnement.
-    Le chemin est néanmoins écrit et testé en entier, par construction
-    directe d'une ligne `orders` déjà "ouverte" — même principe exact que
-    B16/B17 testant leurs propres chemins autrement inatteignables."""
+    Les ordres options validés suivent le même cycle de vie et sont donc
+    également annulables par ce chemin lorsque le kill switch est engagé."""
     with engine.connect() as conn:
         rows = conn.execute(_NON_TERMINAL_ORDERS_ALL_SQL, {"statuses": list(NON_TERMINAL_STATUSES)}).mappings().all()
     if not rows:

@@ -366,6 +366,7 @@ def _gather_evidence(manager: McpSessionManager) -> dict:
         "clock": None,
         "watchlist": {},
         "bars": {},
+        "options": {},
         "news": [],
         "errors": [],
     }
@@ -390,6 +391,24 @@ def _gather_evidence(manager: McpSessionManager) -> dict:
                 evidence["bars"][symbol][timeframe] = _normalize_bars(raw_bars, symbol)
             except McpSessionError as exc:
                 evidence["errors"].append(f"get_stock_bars({symbol}, {timeframe}): {exc}")
+
+        # Options discovery remains read-only and uses the same persistent
+        # Paper MCP session. Keep raw envelopes here; the Strategy Agent
+        # normalizes them before deterministic contract selection.
+        evidence["options"][symbol] = {"contracts": [], "chain": {}}
+        try:
+            evidence["options"][symbol]["contracts"] = manager.call_tool(
+                "get_option_contracts",
+                {"underlying_symbols": symbol, "status": "active", "limit": 100},
+            )
+        except McpSessionError as exc:
+            evidence["errors"].append(f"get_option_contracts({symbol}): {exc}")
+        try:
+            evidence["options"][symbol]["chain"] = manager.call_tool(
+                "get_option_chain", {"underlying_symbol": symbol, "limit": 100}
+            )
+        except McpSessionError as exc:
+            evidence["errors"].append(f"get_option_chain({symbol}): {exc}")
 
     try:
         raw_news = manager.call_tool("get_news", {"symbols": ",".join(DEMO_WATCHLIST), "limit": MAX_NEWS_ITEMS})

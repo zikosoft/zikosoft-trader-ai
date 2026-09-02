@@ -25,7 +25,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .alpaca_client import AlpacaAsset, AlpacaClient, AlpacaError
+from .alpaca_client import AlpacaAsset, AlpacaClient, AlpacaError, AlpacaOptionContract
 from .models import Asset, ProviderAsset, TradingProvider, UserTradingAccount
 
 # §B09 "type : equity, ETF, crypto, option" — mapping depuis `asset_class`
@@ -52,6 +52,16 @@ class AssetSyncResult:
     created_count: int
     updated_count: int
     deactivated_count: int
+    synced_at: datetime
+
+
+@dataclass(frozen=True)
+class OptionSyncResult:
+    synced_count: int
+    created_count: int
+    updated_count: int
+    deactivated_count: int
+    underlying_symbol: str
     synced_at: datetime
 
 
@@ -197,3 +207,146 @@ def last_sync_status(db: Session, account: UserTradingAccount | None) -> tuple[d
     ).scalars()
     total = sum(1 for _ in count)
     return synced_at, total
+
+
+def sync_option_contracts(
+    db: Session,
+    account: UserTradingAccount,
+    *,
+    underlying_symbol: str,
+    expiration_date_gte: str | None = None,
+    expiration_date_lte: str | None = None,
+    option_type: str | None = None,
+    strike_price_gte: float | None = None,
+    strike_price_lte: float | None = None,
+    limit: int = 100,
+    client_factory: type[AlpacaClient] = AlpacaClient,
+) -> OptionSyncResult:
+    """Synchronize one underlying's option contracts into the existing
+    ``assets``/``provider_assets`` catalogue.
+
+    This function is deliberately separate from :func:`sync_assets`: an
+    option-chain refresh must never mark thousands of equity rows inactive
+    simply because they were not part of the requested underlying's chain.
+    Only previously-known options for the same underlying are deactivated.
+    """
+    normalized_underlying = underlying_symbol.strip().upper()
+    if not normalized_underlying:
+        raise AssetSyncError("le sous-jacent options est obligatoire")
+
+    from .encryption import decrypt_secret
+
+    client = client_factory(
+        decrypt_secret(account.encrypted_api_key), decrypt_secret(account.encrypted_secret_key)
+    )
+    try:
+        contracts = client.get_option_contracts(
+            underlying_symbol=normalized_underlying,
+            expiration_date_gte=expiration_date_gte,
+            expiration_date_lte=expiration_date_lte,
+            option_type=option_type,
+            strike_price_gte=strike_price_gte,
+            strike_price_lte=strike_price_lte,
+            limit=limit,
+        )
+    except (AlpacaError, ValueError) as exc:
+        raise AssetSyncError(str(exc)) from exc
+
+    provider = _get_alpaca_provider(db)
+    now = datetime.now(UTC)
+    existing_provider_assets = {
+        row.provider_symbol: row
+        for row in db.execute(
+            select(ProviderAsset).where(ProviderAsset.provider_id == provider.id)
+        ).scalars()
+    }
+    existing_assets = {row.canonical_symbol: row for row in db.execute(select(Asset)).scalars()}
+
+    seen_symbols: set[str] = set()
+    created_count = 0
+    updated_count = 0
+    for contract in contracts:
+        seen_symbols.add(contract.symbol)
+        asset = existing_assets.get(contract.symbol)
+        if asset is None:
+            asset = Asset(
+                canonical_symbol=contract.symbol,
+                label=contract.name,
+                asset_type="option",
+                currency="USD",
+                status="active",
+            )
+            db.add(asset)
+            db.flush()
+            existing_assets[contract.symbol] = asset
+        else:
+            asset.label = contract.name
+            asset.asset_type = "option"
+            asset.status = "active"
+
+        metadata = {
+            "asset_class": "us_option",
+            "underlying_symbol": contract.underlying_symbol,
+            "root_symbol": contract.root_symbol,
+            "expiration_date": contract.expiration_date,
+            "option_type": contract.option_type,
+            "strike_price": contract.strike_price,
+            "contract_size": contract.size,
+            "open_interest": contract.open_interest,
+            "close_price": contract.close_price,
+        }
+        provider_asset = existing_provider_assets.get(contract.symbol)
+        if provider_asset is None:
+            db.add(
+                ProviderAsset(
+                    id=uuid.uuid4(),
+                    asset_id=asset.id,
+                    provider_id=provider.id,
+                    provider_asset_id=contract.id,
+                    provider_symbol=contract.symbol,
+                    tradable=contract.tradable,
+                    fractionable=False,
+                    shortable=False,
+                    status="active",
+                    metadata_json=metadata,
+                    last_synced_at=now,
+                )
+            )
+            created_count += 1
+        else:
+            provider_asset.asset_id = asset.id
+            provider_asset.provider_asset_id = contract.id
+            provider_asset.tradable = contract.tradable
+            provider_asset.fractionable = False
+            provider_asset.shortable = False
+            provider_asset.status = "active"
+            provider_asset.metadata_json = metadata
+            provider_asset.last_synced_at = now
+            updated_count += 1
+
+    # Scope deactivation to option rows whose metadata identifies this
+    # underlying. Equity rows and other underlyings remain untouched.
+    deactivated_count = 0
+    for symbol, provider_asset in existing_provider_assets.items():
+        metadata = provider_asset.metadata_json or {}
+        if (
+            metadata.get("asset_class") == "us_option"
+            and str(metadata.get("underlying_symbol", "")).upper() == normalized_underlying
+            and symbol not in seen_symbols
+            and provider_asset.status != "inactive"
+        ):
+            provider_asset.status = "inactive"
+            deactivated_count += 1
+
+    option_syncs = dict((account.metadata_json or {}).get("options_last_synced", {}))
+    option_syncs[normalized_underlying] = now.isoformat()
+    account.metadata_json = {**(account.metadata_json or {}), "options_last_synced": option_syncs}
+    db.flush()
+    return OptionSyncResult(
+        synced_count=len(contracts),
+        created_count=created_count,
+        updated_count=updated_count,
+        deactivated_count=deactivated_count,
+        underlying_symbol=normalized_underlying,
+        synced_at=now,
+    )

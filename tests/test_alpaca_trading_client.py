@@ -35,12 +35,12 @@ def _client() -> AlpacaTradingClient:
     return AlpacaTradingClient("fake-key", "fake-secret", base_url=BASE_URL)
 
 
-def _order_json(*, order_id="alpaca-1", client_order_id="zst-1", status="accepted") -> dict:
+def _order_json(*, order_id="alpaca-1", client_order_id="zst-1", status="accepted", symbol="AAPL") -> dict:
     return {
         "id": order_id,
         "client_order_id": client_order_id,
         "status": status,
-        "symbol": "AAPL",
+        "symbol": symbol,
         "side": "buy",
         "submitted_at": "2026-09-01T12:00:00Z",
     }
@@ -57,6 +57,27 @@ class TestDefaultBaseUrl:
 
 
 class TestPlaceOrder:
+    def test_place_option_limit_order_sends_whole_qty_and_limit_price(self):
+        client = _client()
+        with respx.mock(assert_all_called=True) as mock:
+            mock.post(ORDERS_URL).mock(return_value=httpx.Response(200, json=_order_json(symbol="AAPL260918C00200000")))
+            client.place_order(
+                symbol="AAPL260918C00200000",
+                side="buy",
+                client_order_id="zst-option-1",
+                order_type="limit",
+                time_in_force="day",
+                qty=1,
+                limit_price=3.10,
+            )
+            import json as _json
+
+            body = _json.loads(mock.calls.last.request.content)
+        assert body["qty"] == "1"
+        assert body["limit_price"] == "3.10"
+        assert "notional" not in body
+        assert "order_class" not in body
+
     def test_place_market_order_sends_expected_body_and_headers(self):
         client = _client()
         with respx.mock(assert_all_called=True) as mock:

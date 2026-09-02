@@ -58,6 +58,13 @@ from shared.ai_governance import get_ai_calls_enabled
 from shared.ai_provider import AIProvider, AIProviderConfig, get_ai_provider
 from shared.eventbus import EventConsumer, publish_event
 from shared.events import EventEnvelope, Streams
+from shared.options import (
+    OptionSelectionError,
+    OptionSelectionPolicy,
+    normalize_option_contracts,
+    normalize_option_quotes,
+    select_option_contract,
+)
 from shared.risk_governance import get_trading_kill_switch_engaged
 from shared.strategy_proposal import StrategyProposal
 
@@ -79,6 +86,7 @@ RECLAIM_IDLE_MS = 30_000
 # pour que le Risk Critic Agent (premier consommateur de ce stream) puisse
 # calculer une volatilité récente sans réabonnement à `market.analysis.completed`.
 MAX_RECENT_CLOSES = 30
+OPTIONS_MAX_PREMIUM_PER_ORDER = float(os.environ.get("OPTIONS_MAX_PREMIUM_PER_ORDER", "500"))
 
 _TYPE_CODE_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -284,6 +292,7 @@ def _build_proposal(raw_result: Any) -> StrategyProposal:
             confidence=confidence,
             reasoning=str(raw_result.get("reasoning") or "aucun raisonnement fourni par la stratégie"),
             risk_flags=risk_flags,
+            option_instrument=raw_result.get("option_instrument"),
         )
     except ValidationError as exc:
         logger.warning("sortie de stratégie invalide, repli HOLD : %s", exc)
@@ -293,6 +302,75 @@ def _build_proposal(raw_result: Any) -> StrategyProposal:
             reasoning=f"sortie de stratégie invalide ({exc.error_count()} erreur(s) de validation) — repli HOLD de sécurité",
             risk_flags=["invalid_strategy_output"],
         )
+
+
+def _underlying_price(evidence: dict, symbol: str, bars: list[dict]) -> float | None:
+    """Extract a real underlying price, preferring the latest snapshot."""
+    snapshot = (evidence.get("watchlist") or {}).get(symbol)
+    if isinstance(snapshot, dict):
+        for container_key in ("latest_trade", "latestTrade", "latest_quote", "latestQuote", "daily_bar", "dailyBar"):
+            container = snapshot.get(container_key)
+            if isinstance(container, dict):
+                for key in ("price", "p", "ask_price", "ap", "close", "c"):
+                    value = container.get(key)
+                    if isinstance(value, int | float) and float(value) > 0:
+                        return float(value)
+    for bar in reversed(bars):
+        value = bar.get("close") if isinstance(bar, dict) else None
+        if isinstance(value, int | float) and float(value) > 0:
+            return float(value)
+    return None
+
+
+def _attach_option_instrument(
+    proposal: StrategyProposal,
+    *,
+    evidence: dict,
+    symbol: str,
+    bars: list[dict],
+) -> StrategyProposal:
+    """Turn each directional strategy signal into a long option proposal.
+
+    A missing/invalid chain is a safe HOLD, never a stock order. This keeps
+    Replay credential-free while making the live Paper path explicit: the
+    Market Agent must provide a current contract and quote before a BUY/SELL
+    can reach the Risk Engine.
+    """
+    if proposal.signal == "HOLD" or proposal.option_instrument is not None:
+        return proposal
+    option_data = (evidence.get("options") or {}).get(symbol)
+    if not isinstance(option_data, dict):
+        option_data = {}
+    contracts = normalize_option_contracts(option_data.get("contracts"), underlying_symbol=symbol)
+    quotes = normalize_option_quotes(option_data.get("chain"))
+    price = _underlying_price(evidence, symbol, bars)
+    if not contracts or not quotes or price is None:
+        return proposal.model_copy(
+            update={
+                "signal": "HOLD",
+                "confidence": 0,
+                "risk_flags": [*proposal.risk_flags, "options_unavailable"],
+                "reasoning": f"signal {proposal.signal} non exécuté : chaîne options ou prix sous-jacent indisponible",
+            }
+        )
+    try:
+        instrument = select_option_contract(
+            signal=proposal.signal,
+            underlying_price=price,
+            contracts=contracts,
+            quotes=quotes,
+            policy=OptionSelectionPolicy(max_premium=OPTIONS_MAX_PREMIUM_PER_ORDER),
+        )
+    except OptionSelectionError as exc:
+        return proposal.model_copy(
+            update={
+                "signal": "HOLD",
+                "confidence": 0,
+                "risk_flags": [*proposal.risk_flags, "option_selection_failed"],
+                "reasoning": f"signal {proposal.signal} non exécuté : sélection optionnelle refusée ({exc})",
+            }
+        )
+    return proposal.model_copy(update={"option_instrument": instrument})
 
 
 def _recent_closes(bars: list[dict], *, limit: int = MAX_RECENT_CLOSES) -> list[float]:
@@ -368,7 +446,14 @@ def _record_and_publish(
                 "outcome": proposal.signal,
                 "confidence": proposal.confidence,
                 "reasoning": json.dumps(
-                    {"text": proposal.reasoning, "symbol": symbol, "type_code": strategy["type_code"]}
+                    {
+                        "text": proposal.reasoning,
+                        "symbol": symbol,
+                        "type_code": strategy["type_code"],
+                        "option_instrument": proposal.option_instrument.model_dump(mode="json")
+                        if proposal.option_instrument
+                        else None,
+                    }
                 ),
                 "risk_flags": json.dumps(proposal.risk_flags),
                 "market_data_timestamp": market_data_timestamp.isoformat(),
@@ -406,6 +491,9 @@ def _record_and_publish(
                             "symbol": symbol,
                             "market_data_timestamp": market_data_timestamp.isoformat(),
                             "risk_flags": proposal.risk_flags,
+                            "option_instrument": proposal.option_instrument.model_dump(mode="json")
+                            if proposal.option_instrument
+                            else None,
                         }
                     ),
                 },
@@ -429,6 +517,9 @@ def _record_and_publish(
             "market_data_timestamp": market_data_timestamp.isoformat(),
             "window_key": window_key,
             "recent_closes": _recent_closes(bars),
+            "option_instrument": proposal.option_instrument.model_dump(mode="json")
+            if proposal.option_instrument
+            else None,
         },
     )
     publish_event(redis_client, Streams.STRATEGY_PROPOSAL_CREATED, envelope)
@@ -540,6 +631,10 @@ def _process_envelope(engine: Engine, redis_client: redis.Redis, envelope: Event
                 continue
 
             proposal = _build_proposal(raw_result)
+            # Competition invariant: a directional signal is publishable only
+            # when it carries a real, quoted option instrument. Missing chain
+            # data becomes a visible HOLD instead of silently trading stock.
+            proposal = _attach_option_instrument(proposal, evidence=evidence, symbol=symbol, bars=bars)
 
             _record_and_publish(
                 engine,

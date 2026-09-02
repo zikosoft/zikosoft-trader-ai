@@ -8,6 +8,8 @@ from app.alpaca_client import (
     AlpacaAsset,
     AlpacaAuthError,
     AlpacaClient,
+    AlpacaOptionContract,
+    AlpacaOptionSnapshot,
     AlpacaPosition,
     AlpacaUpstreamError,
 )
@@ -16,6 +18,8 @@ from app.config import settings
 ACCOUNT_URL = f"{settings.alpaca_paper_base_url}/v2/account"
 POSITIONS_URL = f"{settings.alpaca_paper_base_url}/v2/positions"
 ASSETS_URL = f"{settings.alpaca_paper_base_url}/v2/assets"
+OPTION_CONTRACTS_URL = f"{settings.alpaca_paper_base_url}/v2/options/contracts"
+OPTION_CHAIN_URL = f"{settings.alpaca_data_base_url}/v1beta1/options/snapshots/AAPL"
 
 
 def _asset_json(**overrides) -> dict:
@@ -170,6 +174,116 @@ class TestGetAssets:
             mock.get(ASSETS_URL).mock(side_effect=httpx.TimeoutException("simulated timeout"))
             with pytest.raises(AlpacaUpstreamError):
                 client.get_assets()
+
+
+class TestGetOptionContracts:
+    def test_returns_contracts_and_sends_filters(self):
+        client = _client()
+        body = {
+            "option_contracts": [
+                {
+                    "id": "contract-aapl-call",
+                    "symbol": "AAPL260918C00200000",
+                    "name": "AAPL Sep 18 2026 200 Call",
+                    "status": "active",
+                    "tradable": True,
+                    "expiration_date": "2026-09-18",
+                    "root_symbol": "AAPL",
+                    "underlying_symbol": "AAPL",
+                    "type": "call",
+                    "strike_price": "200",
+                    "size": "100",
+                    "open_interest": "1200",
+                    "close_price": "3.25",
+                }
+            ]
+        }
+        with respx.mock(assert_all_called=True) as mock:
+            mock.get(OPTION_CONTRACTS_URL).mock(return_value=httpx.Response(200, json=body))
+            contracts = client.get_option_contracts(
+                underlying_symbol="aapl",
+                expiration_date_gte="2026-09-10",
+                option_type="call",
+                strike_price_gte=190,
+                strike_price_lte=210,
+                limit=25,
+            )
+            request = mock.calls.last.request
+        assert contracts == [
+            AlpacaOptionContract(
+                id="contract-aapl-call",
+                symbol="AAPL260918C00200000",
+                name="AAPL Sep 18 2026 200 Call",
+                status="active",
+                tradable=True,
+                expiration_date="2026-09-18",
+                root_symbol="AAPL",
+                underlying_symbol="AAPL",
+                option_type="call",
+                strike_price="200",
+                size=100,
+                open_interest=1200,
+                close_price="3.25",
+            )
+        ]
+        assert request.url.params["underlying_symbols"] == "AAPL"
+        assert request.url.params["type"] == "call"
+        assert request.url.params["limit"] == "25"
+
+    def test_auth_and_invalid_shape_are_reported(self):
+        client = _client()
+        with respx.mock(assert_all_called=True) as mock:
+            mock.get(OPTION_CONTRACTS_URL).mock(return_value=httpx.Response(401, json={"message": "unauthorized"}))
+            with pytest.raises(AlpacaAuthError):
+                client.get_option_contracts(underlying_symbol="AAPL")
+        with respx.mock(assert_all_called=True) as mock:
+            mock.get(OPTION_CONTRACTS_URL).mock(return_value=httpx.Response(200, json=[]))
+            with pytest.raises(AlpacaUpstreamError):
+                client.get_option_contracts(underlying_symbol="AAPL")
+
+
+class TestGetOptionChain:
+    def test_parses_latest_quotes_and_greeks(self):
+        client = _client()
+        with respx.mock(assert_all_called=True) as mock:
+            mock.get(OPTION_CHAIN_URL).mock(
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "AAPL260918C00200000": {
+                            "latestQuote": {"bp": 3.1, "ap": 3.3, "bs": 10, "as": 12},
+                            "latestTrade": {"p": 3.2},
+                            "greeks": {"delta": 0.52, "gamma": 0.03, "theta": -0.02, "vega": 0.11, "impliedVolatility": 0.24},
+                        }
+                    },
+                )
+            )
+            snapshots = client.get_option_chain(underlying_symbol="aapl", option_type="call", limit=10)
+            request = mock.calls.last.request
+        assert snapshots == [
+            AlpacaOptionSnapshot(
+                symbol="AAPL260918C00200000",
+                bid_price=3.1,
+                ask_price=3.3,
+                last_trade_price=3.2,
+                bid_size=10,
+                ask_size=12,
+                implied_volatility=0.24,
+                delta=0.52,
+                gamma=0.03,
+                theta=-0.02,
+                vega=0.11,
+            )
+        ]
+        assert request.url.params["type"] == "call"
+        assert request.url.params["limit"] == "10"
+
+    def test_network_error_is_wrapped(self):
+        client = _client()
+        with respx.mock(assert_all_called=True) as mock:
+            mock.get(OPTION_CHAIN_URL).mock(return_value=httpx.Response(500, json={"message": "error"}))
+            with pytest.raises(AlpacaUpstreamError):
+                client.get_option_chain(underlying_symbol="AAPL")
 
 
 class TestGetPositions:

@@ -17,8 +17,8 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
-from app.alpaca_client import AlpacaAsset
-from app.assets import AssetSyncError, last_sync_status, sync_assets
+from app.alpaca_client import AlpacaAsset, AlpacaOptionContract
+from app.assets import AssetSyncError, last_sync_status, sync_assets, sync_option_contracts
 from app.config import settings
 from app.db import engine
 from app.main import app
@@ -29,6 +29,7 @@ from sqlalchemy import text
 
 ALPACA_ACCOUNT_URL = f"{settings.alpaca_paper_base_url}/v2/account"
 ALPACA_ASSETS_URL = f"{settings.alpaca_paper_base_url}/v2/assets"
+ALPACA_OPTIONS_CONTRACTS_URL = f"{settings.alpaca_paper_base_url}/v2/options/contracts"
 
 _AAPL = AlpacaAsset(
     id="asset-aapl",
@@ -91,6 +92,7 @@ class _FakeAlpacaClient:
     d'upsert de `sync_assets`."""
 
     _NEXT_RESULT: list[AlpacaAsset] = []
+    _NEXT_OPTIONS: list[AlpacaOptionContract] = []
     _NEXT_ERROR: Exception | None = None
 
     def __init__(self, api_key: str, secret_key: str) -> None:
@@ -101,6 +103,9 @@ class _FakeAlpacaClient:
         if _FakeAlpacaClient._NEXT_ERROR is not None:
             raise _FakeAlpacaClient._NEXT_ERROR
         return _FakeAlpacaClient._NEXT_RESULT
+
+    def get_option_contracts(self, **kwargs) -> list[AlpacaOptionContract]:
+        return _FakeAlpacaClient._NEXT_OPTIONS
 
 
 def _wipe():
@@ -238,6 +243,71 @@ class TestSyncAssetsUnit:
         assert synced_at is None
         assert total == 0
 
+    def test_option_sync_is_scoped_to_one_underlying_and_preserves_equities(self, db_session):
+        account = self._account(db_session)
+        _FakeAlpacaClient._NEXT_RESULT = [_AAPL]
+        sync_assets(db_session, account, client_factory=_FakeAlpacaClient)
+        db_session.commit()
+
+        option = AlpacaOptionContract(
+            id="contract-aapl-call",
+            symbol="AAPL260918C00200000",
+            name="AAPL Sep 18 2026 200 Call",
+            status="active",
+            tradable=True,
+            expiration_date="2026-09-18",
+            root_symbol="AAPL",
+            underlying_symbol="AAPL",
+            option_type="call",
+            strike_price="200",
+            size=100,
+            open_interest=100,
+            close_price="3.25",
+        )
+        _FakeAlpacaClient._NEXT_OPTIONS = [option]
+        result = sync_option_contracts(
+            db_session,
+            account,
+            underlying_symbol="aapl",
+            client_factory=_FakeAlpacaClient,
+        )
+        db_session.commit()
+
+        assert result.synced_count == 1
+        assert result.created_count == 1
+        rows = db_session.execute(
+            text("SELECT canonical_symbol, asset_type FROM assets ORDER BY canonical_symbol")
+        ).all()
+        assert rows == [("AAPL", "equity"), ("AAPL260918C00200000", "option")]
+
+    def test_option_resync_deactivates_only_missing_options_for_underlying(self, db_session):
+        account = self._account(db_session)
+        _FakeAlpacaClient._NEXT_OPTIONS = [
+            AlpacaOptionContract(
+                id="contract-aapl-call",
+                symbol="AAPL260918C00200000",
+                name="AAPL Sep 18 2026 200 Call",
+                status="active",
+                tradable=True,
+                expiration_date="2026-09-18",
+                root_symbol="AAPL",
+                underlying_symbol="AAPL",
+                option_type="call",
+                strike_price="200",
+                size=100,
+            )
+        ]
+        sync_option_contracts(db_session, account, underlying_symbol="AAPL", client_factory=_FakeAlpacaClient)
+        db_session.commit()
+        _FakeAlpacaClient._NEXT_OPTIONS = []
+        result = sync_option_contracts(db_session, account, underlying_symbol="AAPL", client_factory=_FakeAlpacaClient)
+        db_session.commit()
+        assert result.deactivated_count == 1
+        status = db_session.execute(
+            text("SELECT status FROM provider_assets WHERE provider_symbol = 'AAPL260918C00200000'")
+        ).scalar_one()
+        assert status == "inactive"
+
 
 class TestAssetsRouter:
     def _connect(self, logged_in_client, assets: list[AlpacaAsset]) -> None:
@@ -299,3 +369,34 @@ class TestAssetsRouter:
         search = logged_in_client.get("/api/assets/search", params={"tradable_only": "false"})
         symbols = [item["canonical_symbol"] for item in search.json()["items"]]
         assert "HALTED" not in symbols
+
+    def test_option_sync_route_returns_contract_count(self, logged_in_client):
+        self._connect(logged_in_client, [_AAPL])
+        option_body = {
+            "option_contracts": [
+                {
+                    "id": "contract-aapl-call",
+                    "symbol": "AAPL260918C00200000",
+                    "name": "AAPL Sep 18 2026 200 Call",
+                    "status": "active",
+                    "tradable": True,
+                    "expiration_date": "2026-09-18",
+                    "root_symbol": "AAPL",
+                    "underlying_symbol": "AAPL",
+                    "type": "call",
+                    "strike_price": "200",
+                    "size": "100",
+                }
+            ]
+        }
+        with respx.mock(assert_all_called=False) as mock:
+            mock.get(ALPACA_OPTIONS_CONTRACTS_URL).mock(return_value=httpx.Response(200, json=option_body))
+            response = logged_in_client.post(
+                "/api/assets/options/sync",
+                params={"underlying_symbol": "AAPL", "option_type": "call", "limit": 10},
+            )
+        assert response.status_code == 200
+        assert response.json()["synced_count"] == 1
+        search = logged_in_client.get("/api/assets/options/search")
+        assert search.status_code == 200
+        assert search.json()["items"][0]["asset_type"] == "option"

@@ -16,6 +16,7 @@ import json
 import os
 import sys
 import uuid
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -602,3 +603,50 @@ class TestPureHelpers:
         provider = strategy_agent._build_ai_provider(redis_client)
         assert provider is not None
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    def test_attach_option_instrument_converts_buy_signal_to_call(self):
+        expiry = (date.today() + timedelta(days=14)).isoformat()
+        symbol = "AAPL260916C00200000"
+        proposal = strategy_agent._build_proposal({"signal": "BUY", "reasoning": "cross up"})
+        enriched = strategy_agent._attach_option_instrument(
+            proposal,
+            evidence={
+                "watchlist": {"AAPL": {"latest_trade": {"price": 200.0}}},
+                "options": {
+                    "AAPL": {
+                        "contracts": {
+                            "option_contracts": [
+                                {
+                                    "symbol": symbol,
+                                    "underlying_symbol": "AAPL",
+                                    "type": "call",
+                                    "expiration_date": expiry,
+                                    "strike_price": 200,
+                                    "tradable": True,
+                                    "status": "active",
+                                    "size": 100,
+                                }
+                            ]
+                        },
+                        "chain": {
+                            "snapshots": {
+                                symbol: {"latestQuote": {"bp": 2.9, "ap": 3.1}, "greeks": {"delta": 0.5}}
+                            }
+                        },
+                    }
+                },
+            },
+            symbol="AAPL",
+            bars=[{"close": 200.0}],
+        )
+        assert enriched.signal == "BUY"
+        assert enriched.option_instrument is not None
+        assert enriched.option_instrument.option_type == "call"
+
+    def test_attach_option_instrument_falls_back_to_hold_without_chain(self):
+        proposal = strategy_agent._build_proposal({"signal": "SELL", "reasoning": "cross down"})
+        enriched = strategy_agent._attach_option_instrument(
+            proposal, evidence={"options": {}}, symbol="AAPL", bars=[{"close": 200.0}]
+        )
+        assert enriched.signal == "HOLD"
+        assert "options_unavailable" in enriched.risk_flags

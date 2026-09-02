@@ -19,7 +19,7 @@ Couvre les points du brief B10 :
 - Force le mode Paper : `ALPACA_PAPER_TRADE` toujours `"true"`, jamais un
   paramètre exposé à l'appelant.
 - Limite les toolsets : double couche — `ALPACA_TOOLSETS` côté serveur
-  (`READ_ONLY_TOOLSETS`) ET un allowlist appliqué à nouveau dans
+  (`READ_ONLY_TOOLSETS`, y compris `options-data`) ET un allowlist appliqué à nouveau dans
   `call_tool()` (défense en profondeur, ne dépend jamais uniquement du
   réglage serveur tiers).
 - Reconnecte après panne (boucle superviseur avec backoff borné).
@@ -52,7 +52,7 @@ logger = logging.getLogger("mcp_session")
 # lecture (état marché, données de prix/crypto, actifs, actualités,
 # lecture du compte). `trading` et `watchlists` (écriture / passage
 # d'ordres) sont délibérément exclus — première couche de défense.
-READ_ONLY_TOOLSETS = "account,assets,stock-data,crypto-data,news"
+READ_ONLY_TOOLSETS = "account,assets,stock-data,crypto-data,options-data,news"
 
 # Deuxième couche de défense (ne dépend jamais uniquement du réglage
 # ALPACA_TOOLSETS côté serveur tiers) : allowlist explicite des outils que
@@ -76,6 +76,12 @@ CALLABLE_TOOL_ALLOWLIST = frozenset(
         "get_most_active_stocks",
         "get_market_movers",
         "get_news",
+        # Options discovery/quotes are read-only; order-writing tools remain
+        # excluded from this session and stay behind Order Worker.
+        "get_option_contracts",
+        "get_option_chain",
+        "get_option_snapshot",
+        "get_option_latest_quote",
     }
 )
 

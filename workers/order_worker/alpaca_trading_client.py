@@ -109,6 +109,7 @@ class AlpacaTradingClient:
         time_in_force: str = "day",
         qty: float | None = None,
         notional: float | None = None,
+        limit_price: float | None = None,
         order_class: str | None = None,
         take_profit: dict[str, str] | None = None,
         stop_loss: dict[str, str] | None = None,
@@ -124,6 +125,8 @@ class AlpacaTradingClient:
             body["qty"] = str(qty)
         if notional is not None:
             body["notional"] = str(notional)
+        if limit_price is not None:
+            body["limit_price"] = f"{limit_price:.2f}"
         if order_class is not None:
             body["order_class"] = order_class
         if take_profit is not None:

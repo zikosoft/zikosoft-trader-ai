@@ -16,7 +16,7 @@ import json
 import os
 import sys
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -297,6 +297,7 @@ def _publish_critique(
     recommendation: str = "APPROVE",
     confidence: int = 8000,
     user_id: uuid.UUID | None = None,
+    option_instrument: dict | None = None,
 ) -> EventEnvelope:
     import redis as redis_module
 
@@ -317,6 +318,7 @@ def _publish_critique(
             "market_data_timestamp": market_data_timestamp,
             "last_close": last_close,
             "proposal_risk_flags": proposal_risk_flags or [],
+            "option_instrument": option_instrument,
         },
     )
     publish_event(client, Streams.RISK_CRITIQUE_COMPLETED, envelope)
@@ -859,3 +861,53 @@ class TestPureHelpers:
         parsed = risk_engine._parse_iso_timestamp("2025-01-01T00:00:00Z")
         assert parsed is not None
         assert parsed.tzinfo is not None
+
+    def test_option_risk_gate_accepts_bounded_replay_instrument(self):
+        instrument = {
+            "underlying_symbol": "AAPL",
+            "symbol": "AAPL260925C00200000",
+            "option_type": "call",
+            "expiration_date": (date.today() + timedelta(days=14)).isoformat(),
+            "strike_price": 200,
+            "bid_price": 2.90,
+            "ask_price": 3.10,
+            "limit_price": 3.10,
+            "contract_size": 100,
+            "quantity": 1,
+            "estimated_premium": 310.0,
+            "max_loss": 310.0,
+            "spread_pct": 0.066,
+        }
+        findings = risk_engine._evaluate_option_controls(
+            None,
+            payload={"symbol": "AAPL", "proposed_signal": "BUY", "option_instrument": instrument},
+            strategy={"execution_context_id": uuid.uuid4()},
+            execution_context_kind="REPLAY",
+        )
+        assert findings == []
+
+    def test_option_risk_gate_rejects_expired_and_over_budget_instrument(self):
+        instrument = {
+            "underlying_symbol": "AAPL",
+            "symbol": "AAPL260901P00200000",
+            "option_type": "put",
+            "expiration_date": (date.today() - timedelta(days=1)).isoformat(),
+            "strike_price": 200,
+            "bid_price": 6.0,
+            "ask_price": 6.5,
+            "limit_price": 6.5,
+            "contract_size": 100,
+            "quantity": 1,
+            "estimated_premium": 650.0,
+            "max_loss": 650.0,
+            "spread_pct": 0.08,
+        }
+        findings = risk_engine._evaluate_option_controls(
+            None,
+            payload={"symbol": "AAPL", "proposed_signal": "SELL", "option_instrument": instrument},
+            strategy={"execution_context_id": uuid.uuid4()},
+            execution_context_kind="REPLAY",
+        )
+        reasons = [reason for _tier, reason in findings]
+        assert any("hors fenêtre" in reason for reason in reasons)
+        assert any("prime/perte maximale" in reason for reason in reasons)
