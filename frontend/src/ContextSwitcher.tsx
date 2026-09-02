@@ -3,6 +3,8 @@ import { Box, Button, Chip, Typography } from "@mui/material";
 import { describeError } from "./api/client";
 import { selectContext, type ContextKind, type ContextListResponse } from "./api/context";
 import { CONTEXT_COLORS } from "./theme";
+import { contextLabel } from "./i18n/domain";
+import { useI18n } from "./i18n/I18nContext";
 
 // Sélecteur global de contexte, désormais dans le header (§B25 "Sélecteur
 // Replay/Paper" ; auparavant une bande dédiée sous le header, §B06
@@ -17,9 +19,8 @@ type Props = {
   onChanged: (state: ContextListResponse) => void;
 };
 
-const LABELS: Record<ContextKind, string> = { PAPER: "Alpaca Paper", REPLAY: "Historical Replay" };
-
 export default function ContextSwitcher({ state, onChanged }: Props) {
+  const { t } = useI18n();
   const [pendingTarget, setPendingTarget] = useState<ContextKind | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
@@ -38,7 +39,7 @@ export default function ContextSwitcher({ state, onChanged }: Props) {
     try {
       const result = await selectContext(kind, true);
       if ("confirmationRequired" in result) {
-        setError("Le contexte actif a changé entre-temps — réessaie.");
+        setError(t("context.changedInTheMeantime"));
         return;
       }
       onChanged(result);
@@ -54,7 +55,7 @@ export default function ContextSwitcher({ state, onChanged }: Props) {
     <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
       {active && (
         <Chip
-          label={`${active} — ${LABELS[active]}`}
+          label={t("context.activeLabel", { kind: active, context: contextLabel(t, active) })}
           size="small"
           sx={{
             bgcolor: CONTEXT_COLORS[active],
@@ -75,7 +76,9 @@ export default function ContextSwitcher({ state, onChanged }: Props) {
               disabled={switching}
               onClick={() => confirmSwitch(c.kind)}
             >
-              {switching ? "Changement…" : `Confirmer → ${LABELS[c.kind]}`}
+              {switching
+                ? t("context.switching")
+                : t("context.confirmSwitch", { context: contextLabel(t, c.kind) })}
             </Button>
           ) : (
             <Button
@@ -86,13 +89,13 @@ export default function ContextSwitcher({ state, onChanged }: Props) {
               disabled={switching || pendingTarget !== null}
               onClick={() => requestSwitch(c.kind)}
             >
-              Passer en {LABELS[c.kind]}
+              {t("context.switchTo", { context: contextLabel(t, c.kind) })}
             </Button>
           ),
         )}
       {pendingTarget && (
         <Button size="small" color="inherit" onClick={() => setPendingTarget(null)}>
-          Annuler
+          {t("common.cancel")}
         </Button>
       )}
       {error && (

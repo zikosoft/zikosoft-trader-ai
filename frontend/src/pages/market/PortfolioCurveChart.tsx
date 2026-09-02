@@ -2,6 +2,8 @@ import { useMemo } from "react";
 import { Box, Typography } from "@mui/material";
 import type { EChartsOption } from "echarts";
 import { useEchartsInstance } from "./useEchartsInstance";
+import { useI18n } from "../../i18n/I18nContext";
+import { formatCurrency, formatDate, formatDateTime } from "../../i18n/formatters";
 
 // §B27 "Courbe portefeuille" — ECharts, alimentée par
 // `GET /api/portfolio/history` (B18, déjà construite), aucune nouvelle
@@ -13,6 +15,7 @@ export default function PortfolioCurveChart({
   points: { x: string; y: number }[];
   themeMode: "light" | "dark";
 }) {
+  const { locale, t } = useI18n();
   const option = useMemo<EChartsOption | null>(() => {
     if (points.length === 0) return null;
     return {
@@ -20,14 +23,14 @@ export default function PortfolioCurveChart({
       xAxis: {
         type: "category",
         data: points.map((p) => p.x),
-        axisLabel: { formatter: (v: string) => new Date(v).toLocaleDateString() },
+        axisLabel: { formatter: (v: string) => formatDate(locale, v, { month: "short", day: "numeric" }) },
       },
-      yAxis: { type: "value", scale: true, axisLabel: { formatter: (v: number) => `$${v.toLocaleString()}` } },
+      yAxis: { type: "value", scale: true, axisLabel: { formatter: (v: number) => formatCurrency(locale, v) } },
       tooltip: {
         trigger: "axis",
         formatter: (params: unknown) => {
           const p = (params as { value: number; axisValue: string }[])[0];
-          return `${new Date(p.axisValue).toLocaleString()}<br/>$${p.value.toLocaleString()}`;
+          return `${formatDateTime(locale, p.axisValue)}<br/>${formatCurrency(locale, p.value)}`;
         },
       },
       series: [
@@ -41,7 +44,7 @@ export default function PortfolioCurveChart({
         },
       ],
     };
-  }, [points]);
+  }, [locale, points]);
 
   const containerRef = useEchartsInstance(option, themeMode);
 
@@ -57,7 +60,7 @@ export default function PortfolioCurveChart({
           color="text.secondary"
           sx={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", px: 2 }}
         >
-          Pas encore assez d'historique de portefeuille pour tracer une courbe.
+          {t("charts.notEnoughPortfolioHistory")}
         </Typography>
       )}
     </Box>

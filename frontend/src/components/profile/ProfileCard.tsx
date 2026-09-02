@@ -27,7 +27,6 @@ import {
 import ShieldOutlinedIcon from "@mui/icons-material/ShieldOutlined";
 import { useLivePolling } from "../../hooks/useLivePolling";
 import {
-  PROFILE_LABELS,
   PROFILE_ORDER,
   fetchUserProfile,
   isProfileIncrease,
@@ -35,16 +34,13 @@ import {
   type ExperienceProfile,
 } from "../../api/userProfile";
 import { describeError } from "../../api/client";
+import { useI18n } from "../../i18n/I18nContext";
+import { profileLabel } from "../../i18n/domain";
 
 const POLL_INTERVAL_MS = 15000;
 
-const APPROVAL_MODE_LABELS: Record<string, string> = {
-  mandatory: "Obligatoire",
-  optional: "Optionnelle",
-  configurable: "Configurable",
-};
-
 export default function ProfileCard() {
+  const { t } = useI18n();
   const { data: profile, refresh } = useLivePolling(fetchUserProfile, POLL_INTERVAL_MS);
   const [pendingSelection, setPendingSelection] = useState<ExperienceProfile | null>(null);
   const [busy, setBusy] = useState(false);
@@ -91,12 +87,10 @@ export default function ProfileCard() {
     <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
       <Typography variant="h6" component="h2" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
         <ShieldOutlinedIcon color="primary" />
-        Profil d'expérience
+        {t("profileCard.title")}
       </Typography>
       <Typography color="text.secondary" sx={{ mb: 2 }}>
-        Détermine les valeurs par défaut des stratégies, le nombre de stratégies actives et de symboles autorisés, ainsi
-        que le mode d'approbation des ordres. Les risques et pertes potentiels restent toujours affichés, quel que soit
-        le profil.
+        {t("profileCard.body")}
       </Typography>
 
       <ToggleButtonGroup
@@ -108,7 +102,7 @@ export default function ProfileCard() {
       >
         {PROFILE_ORDER.map((p) => (
           <ToggleButton key={p} value={p}>
-            {PROFILE_LABELS[p]}
+            {profileLabel(t, p)}
           </ToggleButton>
         ))}
       </ToggleButtonGroup>
@@ -117,24 +111,28 @@ export default function ProfileCard() {
         <Table size="small" sx={{ mb: error ? 2 : 0 }}>
           <TableBody>
             <TableRow>
-              <TableCell>Stratégies actives max.</TableCell>
+              <TableCell>{t("profileCard.maxActiveStrategies")}</TableCell>
               <TableCell align="right">{limits.max_active_strategies}</TableCell>
             </TableRow>
             <TableRow>
-              <TableCell>Symboles cumulés max.</TableCell>
+              <TableCell>{t("profileCard.maxSymbols")}</TableCell>
               <TableCell align="right">{limits.max_symbols}</TableCell>
             </TableRow>
             <TableRow>
-              <TableCell>Risque max. par ordre</TableCell>
+              <TableCell>{t("profileCard.maxOrderRisk")}</TableCell>
               <TableCell align="right">{limits.order_risk_pct}%</TableCell>
             </TableRow>
             <TableRow>
-              <TableCell>Perte quotidienne max.</TableCell>
+              <TableCell>{t("profileCard.maxDailyLoss")}</TableCell>
               <TableCell align="right">{limits.daily_loss_pct}%</TableCell>
             </TableRow>
             <TableRow>
-              <TableCell>Approbation des ordres</TableCell>
-              <TableCell align="right">{APPROVAL_MODE_LABELS[limits.approval_mode] ?? limits.approval_mode}</TableCell>
+              <TableCell>{t("profileCard.orderApproval")}</TableCell>
+              <TableCell align="right">
+                {t(`profileCard.approval.${limits.approval_mode}`) === `profileCard.approval.${limits.approval_mode}`
+                  ? limits.approval_mode
+                  : t(`profileCard.approval.${limits.approval_mode}`)}
+              </TableCell>
             </TableRow>
           </TableBody>
         </Table>
@@ -147,17 +145,17 @@ export default function ProfileCard() {
       )}
 
       <Dialog open={pendingSelection !== null} onClose={() => setPendingSelection(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>Augmenter le niveau d'autonomie ?</DialogTitle>
+        <DialogTitle>{t("profileCard.confirmTitle")}</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Passer au profil « {pendingSelection ? PROFILE_LABELS[pendingSelection] : ""} » augmente les limites de
-            stratégies actives, de symboles, de risque par ordre et de perte quotidienne autorisée, et peut réduire les
-            approbations manuelles requises avant exécution. Confirmez-vous ce changement ?
+            {t("profileCard.confirmBody", {
+              profile: pendingSelection ? profileLabel(t, pendingSelection) : "",
+            })}
           </DialogContentText>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setPendingSelection(null)} disabled={busy}>
-            Annuler
+            {t("common.cancel")}
           </Button>
           <Box sx={{ flex: "0 0 auto" }}>
             <Button
@@ -166,7 +164,7 @@ export default function ProfileCard() {
               disabled={busy}
               onClick={() => pendingSelection && applyProfile(pendingSelection)}
             >
-              {busy ? "En cours…" : "Confirmer"}
+              {busy ? t("profileCard.working") : t("profileCard.confirm")}
             </Button>
           </Box>
         </DialogActions>

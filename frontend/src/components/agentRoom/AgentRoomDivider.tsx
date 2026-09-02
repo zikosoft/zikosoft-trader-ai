@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { Box } from "@mui/material";
+import { useI18n } from "../../i18n/I18nContext";
 
 // §B28 checklist "mode Docked... divider redimensionnable" — glisser
 // horizontalement change la largeur du panneau Agent Room par rapport au
@@ -18,6 +19,7 @@ type Props = {
 };
 
 export default function AgentRoomDivider({ panelPercent, onChange, containerRef }: Props) {
+  const { t } = useI18n();
   const draggingRef = useRef(false);
 
   const handlePointerMove = useCallback(
@@ -51,7 +53,7 @@ export default function AgentRoomDivider({ panelPercent, onChange, containerRef 
     <Box
       role="separator"
       aria-orientation="vertical"
-      aria-label="Redimensionner le panneau Agent Room"
+      aria-label={t("agentRoom.resize")}
       aria-valuenow={Math.round(panelPercent)}
       aria-valuemin={MIN_PERCENT}
       aria-valuemax={MAX_PERCENT}

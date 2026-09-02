@@ -11,15 +11,13 @@ import CategoryOutlinedIcon from "@mui/icons-material/CategoryOutlined";
 import { useLivePolling } from "../../hooks/useLivePolling";
 import { fetchAssetCatalogStatus, syncAssetCatalog } from "../../api/assets";
 import { describeError } from "../../api/client";
+import { formatDateTime } from "../../i18n/formatters";
+import { useI18n } from "../../i18n/I18nContext";
 
 const POLL_INTERVAL_MS = 30000;
 
-function formatDate(iso: string | null): string {
-  if (!iso) return "jamais";
-  return new Date(iso).toLocaleString("fr-FR");
-}
-
 export default function AssetCatalogCard() {
+  const { locale, t } = useI18n();
   const { data: status, refresh } = useLivePolling(fetchAssetCatalogStatus, POLL_INTERVAL_MS);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,7 +30,11 @@ export default function AssetCatalogCard() {
     try {
       const result = await syncAssetCatalog();
       setLastResultNote(
-        `${result.created_count} créé(s), ${result.updated_count} mis à jour, ${result.deactivated_count} désactivé(s).`,
+        t("assetCatalog.syncResult", {
+          created: result.created_count,
+          updated: result.updated_count,
+          deactivated: result.deactivated_count,
+        }),
       );
       refresh();
     } catch (err) {
@@ -46,12 +48,10 @@ export default function AssetCatalogCard() {
     <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
       <Typography variant="h6" component="h2" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
         <CategoryOutlinedIcon color="primary" />
-        Catalogue des actifs
+        {t("assetCatalog.title")}
       </Typography>
       <Typography color="text.secondary" sx={{ mb: 2 }}>
-        Symboles Alpaca disponibles pour la création de stratégies (autocomplete). Synchronisé automatiquement pendant
-        la connexion du compte — un rafraîchissement manuel n'est utile que pour prendre en compte un changement récent
-        du côté d'Alpaca (nouveaux actifs, retraits, statut négociable modifié).
+        {t("assetCatalog.body")}
       </Typography>
 
       <Box
@@ -64,13 +64,19 @@ export default function AssetCatalogCard() {
         }}
       >
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-          <Chip label={`${status?.active_asset_count ?? 0} actif(s) au catalogue`} size="small" variant="outlined" />
+          <Chip
+            label={t("assetCatalog.activeCount", { count: status?.active_asset_count ?? 0 })}
+            size="small"
+            variant="outlined"
+          />
           <Typography variant="body2" color="text.secondary">
-            Dernière synchronisation : {formatDate(status?.last_synced_at ?? null)}
+            {t("assetCatalog.lastSync", {
+              time: status?.last_synced_at ? formatDateTime(locale, status.last_synced_at) : t("assetCatalog.never"),
+            })}
           </Typography>
         </Box>
         <Button variant="outlined" disabled={syncing} onClick={handleSync} sx={{ flexShrink: 0 }}>
-          {syncing ? "Synchronisation…" : "Resynchroniser"}
+          {syncing ? t("assetCatalog.syncing") : t("assetCatalog.resync")}
         </Button>
       </Box>
 

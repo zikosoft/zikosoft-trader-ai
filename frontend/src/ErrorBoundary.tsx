@@ -1,5 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { Alert, AlertTitle, Box, Button, Container, Typography } from "@mui/material";
+import { useI18n } from "./i18n/I18nContext";
+import type { Translate } from "./i18n/messages";
 
 // §B25 "Error boundaries" — filet de sécurité générique : une exception de
 // rendu dans UNE page (ex. une future page B26/B27/B28 mal branchée) ne doit
@@ -9,10 +11,10 @@ import { Alert, AlertTitle, Box, Button, Container, Typography } from "@mui/mate
 // d'erreurs frontend n'existe dans ce projet ; le journal d'erreurs
 // applicatif B36 couvre le backend, pas le rendu React).
 
-type Props = { children: ReactNode };
+type Props = { children: ReactNode; t: Translate };
 type State = { error: Error | null };
 
-export default class ErrorBoundary extends Component<Props, State> {
+class ErrorBoundaryImpl extends Component<Props, State> {
   state: State = { error: null };
 
   static getDerivedStateFromError(error: Error): State {
@@ -28,14 +30,13 @@ export default class ErrorBoundary extends Component<Props, State> {
       return (
         <Container maxWidth="sm" sx={{ py: 8 }}>
           <Alert severity="error">
-            <AlertTitle>Une erreur inattendue est survenue</AlertTitle>
+            <AlertTitle>{this.props.t("errorBoundary.title")}</AlertTitle>
             <Typography variant="body2" sx={{ mb: 2 }}>
-              Cette partie de l'application a rencontré un problème. Le reste de ZikosoftTrader AI
-              (dont le bandeau d'incident système) reste fonctionnel.
+              {this.props.t("errorBoundary.body")}
             </Typography>
             <Box>
               <Button variant="outlined" color="inherit" onClick={() => window.location.reload()}>
-                Recharger la page
+                {this.props.t("errorBoundary.reload")}
               </Button>
             </Box>
           </Alert>
@@ -44,4 +45,9 @@ export default class ErrorBoundary extends Component<Props, State> {
     }
     return this.props.children;
   }
+}
+
+export default function ErrorBoundary({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
+  return <ErrorBoundaryImpl t={t}>{children}</ErrorBoundaryImpl>;
 }

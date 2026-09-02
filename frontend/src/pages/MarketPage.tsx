@@ -30,6 +30,8 @@ import SparklineChart from "./market/SparklineChart";
 import AllocationChart from "./market/AllocationChart";
 import ExposureChart from "./market/ExposureChart";
 import StrategyActivityChart from "./market/StrategyActivityChart";
+import { useI18n } from "../i18n/I18nContext";
+import { formatDateTime } from "../i18n/formatters";
 
 // §B27 "Graphiques marché et analytics" — orchestrateur. Deux sections
 // indépendantes, chacune propriétaire de son propre poll (§D058/D060, même
@@ -43,6 +45,7 @@ import StrategyActivityChart from "./market/StrategyActivityChart";
 //      exposition/performance par stratégie (B18/B12, aucune route
 //      nouvelle sauf `strategy-activity`).
 export default function MarketPage() {
+  const { t } = useI18n();
   const { mode } = useThemeMode();
   const { data: symbols, loading: symbolsLoading } = useLivePolling(fetchSymbols, 30000);
   const [symbol, setSymbol] = useState<string | null>(null);
@@ -57,7 +60,7 @@ export default function MarketPage() {
   return (
     <Box>
       <Typography variant="h4" component="h1" sx={{ mb: 2 }}>
-        Market
+        {t("navigation.market")}
       </Typography>
 
       <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
@@ -65,8 +68,7 @@ export default function MarketPage() {
           <Skeleton variant="rectangular" height={420} sx={{ borderRadius: 1 }} />
         ) : !symbols || symbols.length === 0 ? (
           <Alert severity="info">
-            Aucune donnée de marché disponible pour l'instant — le Market Agent (B10) n'a pas encore collecté de
-            bougies pour un symbole surveillé. Ce graphique s'activera dès la première bougie réellement persistée.
+            {t("market.noDataFull")}
           </Alert>
         ) : (
           <>
@@ -81,7 +83,7 @@ export default function MarketPage() {
               <QuoteBadge symbol={symbol} />
               <FormControlLabel
                 control={<Switch size="small" checked={showMA} onChange={(e) => setShowMA(e.target.checked)} />}
-                label="Moyennes mobiles (20/50)"
+                label={t("market.movingAverages")}
               />
             </Box>
             {symbol && <SymbolChart symbol={symbol} showMA={showMA} onMarkerClick={setClickedMarker} />}
@@ -100,13 +102,14 @@ export default function MarketPage() {
 }
 
 function QuoteBadge({ symbol }: { symbol: string | null }) {
+  const { locale, t } = useI18n();
   const { data } = useLivePolling(async () => (symbol ? fetchQuote(symbol) : null), 15000);
   if (!symbol || !data) return null;
   return (
     <Typography variant="body1">
       <strong>{data.price.toFixed(2)} $</strong>
       <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-        {data.as_of ? `au ${new Date(data.as_of).toLocaleString()}` : "horodatage source non disponible"}
+        {data.as_of ? t("market.asOf", { time: formatDateTime(locale, data.as_of) }) : t("market.timestampUnavailable")}
       </Typography>
     </Typography>
   );
@@ -121,6 +124,7 @@ function SymbolChart({
   showMA: boolean;
   onMarkerClick: (p: MarkerClickPayload) => void;
 }) {
+  const { t } = useI18n();
   const { mode } = useThemeMode();
   const { data: barsData, loading: barsLoading } = useLivePolling(() => fetchBars(symbol, "1Day", 200), 15000);
   const { data: orders } = useLivePolling(() => fetchOrderMarkers(symbol, 100), 15000);
@@ -130,7 +134,7 @@ function SymbolChart({
   if (!barsData || barsData.bars.length === 0) {
     return (
       <Alert severity="info">
-        Aucune bougie persistée pour {symbol} pour l'instant.
+        {t("market.noBars", { symbol })}
       </Alert>
     );
   }
@@ -148,6 +152,7 @@ function SymbolChart({
 }
 
 function AnalyticsSection({ themeMode }: { themeMode: "light" | "dark" }) {
+  const { t } = useI18n();
   const { data: history, error: historyError } = useLivePolling(() => fetchPortfolioHistory(200), 30000);
   const { data: positions } = useLivePolling(fetchPositions, 30000);
   const { data: summary } = useLivePolling(fetchPortfolioSummary, 30000);
@@ -167,8 +172,7 @@ function AnalyticsSection({ themeMode }: { themeMode: "light" | "dark" }) {
   if (historyError && historyError instanceof ApiError && historyError.code === "NOT_FOUND") {
     return (
       <Alert severity="info">
-        Pas encore de portefeuille pour ce contexte — l'analytics se remplira dès le premier snapshot du Portfolio
-        Worker (B18).
+        {t("market.analyticsNoPortfolio")}
       </Alert>
     );
   }
@@ -181,7 +185,7 @@ function AnalyticsSection({ themeMode }: { themeMode: "light" | "dark" }) {
       <Grid size={{ xs: 12, lg: 8 }}>
         <Paper variant="outlined" sx={{ p: 2, height: "100%" }}>
           <Typography variant="h6" component="h3" sx={{ mb: 1 }}>
-            Courbe portefeuille
+            {t("market.portfolioCurve")}
           </Typography>
           <PortfolioCurveChart points={chronological} themeMode={themeMode} />
         </Paper>
@@ -189,7 +193,7 @@ function AnalyticsSection({ themeMode }: { themeMode: "light" | "dark" }) {
       <Grid size={{ xs: 12, lg: 4 }}>
         <Paper variant="outlined" sx={{ p: 2, height: "100%" }}>
           <Typography variant="h6" component="h3" sx={{ mb: 1 }}>
-            Sparklines
+            {t("market.sparklines")}
           </Typography>
           <Typography variant="caption" color="text.secondary">
             1D
@@ -205,13 +209,13 @@ function AnalyticsSection({ themeMode }: { themeMode: "light" | "dark" }) {
       <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
         <Paper variant="outlined" sx={{ p: 2, height: "100%" }}>
           <Typography variant="h6" component="h3" sx={{ mb: 1 }}>
-            Allocation
+            {t("positions.allocation")}
           </Typography>
           <AllocationChart
             themeMode={themeMode}
             slices={[
               ...(positions?.positions ?? []).map((p) => ({ name: p.symbol, value: p.market_value ?? 0 })),
-              { name: "Cash", value: cash },
+              { name: t("portfolioStats.cash"), value: cash },
             ]}
           />
         </Paper>
@@ -219,7 +223,7 @@ function AnalyticsSection({ themeMode }: { themeMode: "light" | "dark" }) {
       <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
         <Paper variant="outlined" sx={{ p: 2, height: "100%" }}>
           <Typography variant="h6" component="h3" sx={{ mb: 1 }}>
-            Exposition
+            {t("market.exposure")}
           </Typography>
           <ExposureChart cash={cash} invested={invested} themeMode={themeMode} />
         </Paper>
@@ -227,11 +231,10 @@ function AnalyticsSection({ themeMode }: { themeMode: "light" | "dark" }) {
       <Grid size={{ xs: 12, lg: 4 }}>
         <Paper variant="outlined" sx={{ p: 2, height: "100%" }}>
           <Typography variant="h6" component="h3" sx={{ mb: 1 }}>
-            Performance par stratégie
+            {t("market.strategyPerformance")}
           </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>
-            Activité réelle (nombre d'ordres, pas un P&L attribué — Alpaca n'expose aucune attribution de P&L par
-            stratégie).
+            {t("market.strategyPerformanceNote")}
           </Typography>
           <StrategyActivityChart strategies={strategyActivity?.strategies ?? []} themeMode={themeMode} />
         </Paper>

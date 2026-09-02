@@ -3,6 +3,7 @@ import { Box, Typography } from "@mui/material";
 import type { StrategyActivity } from "../../api/market";
 import type { EChartsOption } from "echarts";
 import { useEchartsInstance } from "./useEchartsInstance";
+import { useI18n } from "../../i18n/I18nContext";
 
 // §B27 "Performance par stratégie" — voir docstring de
 // `backend/app/market.py::strategy_activity` pour la limite honnête
@@ -17,21 +18,22 @@ export default function StrategyActivityChart({
   strategies: StrategyActivity[];
   themeMode: "light" | "dark";
 }) {
+  const { t } = useI18n();
   const option = useMemo<EChartsOption | null>(() => {
     if (strategies.length === 0) return null;
     const names = strategies.map((s) => s.name);
     return {
       grid: { left: 120, right: 16, top: 16, bottom: 32 },
-      xAxis: { type: "value", name: "ordres" },
+      xAxis: { type: "value", name: t("charts.orders") },
       yAxis: { type: "category", data: names, axisLabel: { fontSize: 11 } },
       tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
       legend: { top: 0 },
       series: [
-        { name: "BUY", type: "bar", stack: "orders", data: strategies.map((s) => s.buy_count), itemStyle: { color: "#26a69a" } },
-        { name: "SELL", type: "bar", stack: "orders", data: strategies.map((s) => s.sell_count), itemStyle: { color: "#ef5350" } },
+        { name: t("signal.BUY"), type: "bar", stack: "orders", data: strategies.map((s) => s.buy_count), itemStyle: { color: "#26a69a" } },
+        { name: t("signal.SELL"), type: "bar", stack: "orders", data: strategies.map((s) => s.sell_count), itemStyle: { color: "#ef5350" } },
       ],
     };
-  }, [strategies]);
+  }, [strategies, t]);
 
   const containerRef = useEchartsInstance(option, themeMode);
 
@@ -45,7 +47,7 @@ export default function StrategyActivityChart({
           color="text.secondary"
           sx={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}
         >
-          Aucune stratégie active pour ce contexte pour l'instant.
+          {t("charts.noStrategyActivity")}
         </Typography>
       )}
     </Box>

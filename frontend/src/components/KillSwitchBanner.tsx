@@ -15,19 +15,13 @@ import { Alert, AlertTitle, Box, Button } from "@mui/material";
 import { Link as RouterLink } from "react-router-dom";
 import { useLivePolling } from "../hooks/useLivePolling";
 import { fetchSystemHealth } from "../api/systemHealth";
+import { formatDateTime } from "../i18n/formatters";
+import { useI18n } from "../i18n/I18nContext";
 
 const POLL_INTERVAL_MS = 5000;
 
-function formatOccurredAt(iso: string | null): string {
-  if (!iso) return "à l'instant";
-  try {
-    return new Date(iso).toLocaleString("fr-FR");
-  } catch {
-    return iso;
-  }
-}
-
 export default function KillSwitchBanner() {
+  const { locale, t } = useI18n();
   const { data } = useLivePolling(fetchSystemHealth, POLL_INTERVAL_MS);
 
   if (!data?.trading_kill_switch_engaged) return null;
@@ -42,15 +36,17 @@ export default function KillSwitchBanner() {
         sx={{ borderRadius: 0 }}
         action={
           <Button component={RouterLink} to="/settings" color="inherit" size="small" variant="outlined">
-            Gérer
+            {t("killSwitchBanner.manage")}
           </Button>
         }
       >
-        <AlertTitle sx={{ fontWeight: 700 }}>Trading suspendu — Kill switch engagé</AlertTitle>
-        {detail?.reason ? `Raison : « ${detail.reason} »` : "Aucune raison enregistrée."}
+        <AlertTitle sx={{ fontWeight: 700 }}>{t("killSwitchBanner.title")}</AlertTitle>
+        {detail?.reason ? t("killSwitchBanner.reason", { reason: detail.reason }) : t("killSwitchBanner.noReason")}
         {" — "}
-        {formatOccurredAt(detail?.occurred_at ?? null)}. Aucune nouvelle proposition ni aucun nouvel ordre tant que le
-        trading n'est pas explicitement repris.
+        {detail?.occurred_at
+          ? formatDateTime(locale, detail.occurred_at)
+          : t("killSwitchBanner.justNow")}
+        . {t("killSwitchBanner.body")}
       </Alert>
     </Box>
   );

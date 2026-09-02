@@ -34,19 +34,10 @@ import {
   type KillSwitchEvent,
 } from "../../api/killSwitch";
 import { describeError } from "../../api/client";
+import { formatDateTime } from "../../i18n/formatters";
+import { useI18n } from "../../i18n/I18nContext";
 
 const POLL_INTERVAL_MS = 5000;
-const ENGAGE_PHRASE = "ARRÊTER LE TRADING";
-const DISENGAGE_PHRASE = "REPRENDRE LE TRADING";
-
-function formatDate(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString("fr-FR");
-  } catch {
-    return iso;
-  }
-}
-
 function ConfirmDialog({
   open,
   title,
@@ -68,6 +59,7 @@ function ConfirmDialog({
   onCancel: () => void;
   onConfirm: (reason: string) => void;
 }) {
+  const { t } = useI18n();
   const [reason, setReason] = useState("");
   const [typedPhrase, setTypedPhrase] = useState("");
 
@@ -84,11 +76,10 @@ function ConfirmDialog({
       <DialogTitle>{title}</DialogTitle>
       <DialogContent>
         <DialogContentText sx={{ mb: 2 }}>
-          Cette action est immédiate et laisse une trace d'audit permanente. Indiquez une raison, puis tapez exactement
-          « {phrase} » pour confirmer.
+          {t("killSwitch.confirmBody", { phrase })}
         </DialogContentText>
         <TextField
-          label="Raison"
+          label={t("common.reason")}
           fullWidth
           multiline
           minRows={2}
@@ -97,7 +88,7 @@ function ConfirmDialog({
           sx={{ mb: 2 }}
         />
         <TextField
-          label={`Tapez « ${phrase} » pour confirmer`}
+          label={t("killSwitch.typePhrase", { phrase })}
           fullWidth
           value={typedPhrase}
           onChange={(e) => setTypedPhrase(e.target.value)}
@@ -111,7 +102,7 @@ function ConfirmDialog({
       </DialogContent>
       <DialogActions>
         <Button onClick={handleClose} disabled={busy}>
-          Annuler
+          {t("common.cancel")}
         </Button>
         <Button
           variant="contained"
@@ -119,7 +110,7 @@ function ConfirmDialog({
           disabled={!canConfirm}
           onClick={() => onConfirm(reason.trim())}
         >
-          {busy ? "En cours…" : confirmLabel}
+          {busy ? t("killSwitch.working") : confirmLabel}
         </Button>
       </DialogActions>
     </Dialog>
@@ -127,6 +118,7 @@ function ConfirmDialog({
 }
 
 function EventLine({ event }: { event: KillSwitchEvent }) {
+  const { locale, t } = useI18n();
   const engaged = event.action === "KILL_SWITCH_ENGAGED";
   return (
     <ListItem disableGutters>
@@ -134,22 +126,23 @@ function EventLine({ event }: { event: KillSwitchEvent }) {
         primary={
           <>
             <Chip
-              label={engaged ? "Engagé" : "Désengagé"}
+              label={engaged ? t("killSwitch.engaged") : t("killSwitch.disengaged")}
               size="small"
               color={engaged ? "error" : "success"}
               variant="outlined"
               sx={{ mr: 1 }}
             />
-            {event.reason ?? "—"}
+            {event.reason ?? t("common.none")}
           </>
         }
-        secondary={formatDate(event.occurred_at)}
+        secondary={formatDateTime(locale, event.occurred_at)}
       />
     </ListItem>
   );
 }
 
 export default function KillSwitchCard() {
+  const { locale, t } = useI18n();
   const { data: status, refresh: refreshStatus } = useLivePolling(fetchKillSwitchStatus, POLL_INTERVAL_MS);
   const { data: history, refresh: refreshHistory } = useLivePolling(() => fetchKillSwitchHistory(10), POLL_INTERVAL_MS);
   const [dialog, setDialog] = useState<"engage" | "disengage" | null>(null);
@@ -192,11 +185,10 @@ export default function KillSwitchCard() {
     <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
       <Typography variant="h6" component="h2" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
         <WarningAmberIcon color={engaged ? "error" : "action"} />
-        Kill switch trading
+        {t("killSwitch.title")}
       </Typography>
       <Typography color="text.secondary" sx={{ mb: 2 }}>
-        Interrompt immédiatement le trading : suspend toutes les stratégies actives, bloque toute nouvelle proposition
-        et l'Order Worker, annule les ordres ouverts éligibles. La reprise n'est jamais automatique.
+        {t("killSwitch.body")}
       </Typography>
 
       {/* §B31 bug trouvé pendant la vérification interactive (mobile,
@@ -219,13 +211,16 @@ export default function KillSwitchCard() {
       >
         <Box>
           <Chip
-            label={engaged ? "Trading suspendu" : "Trading actif"}
+            label={engaged ? t("killSwitch.tradingSuspended") : t("killSwitch.tradingActive")}
             color={engaged ? "error" : "success"}
             variant={engaged ? "filled" : "outlined"}
           />
           {status?.last_event && (
             <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              Dernier événement : « {status.last_event.reason ?? "—"} » — {formatDate(status.last_event.occurred_at)}
+              {t("killSwitch.lastEvent", {
+                reason: status.last_event.reason ?? t("common.none"),
+                time: formatDateTime(locale, status.last_event.occurred_at),
+              })}
             </Typography>
           )}
         </Box>
@@ -236,11 +231,11 @@ export default function KillSwitchCard() {
             onClick={() => setDialog("disengage")}
             sx={{ flexShrink: 0 }}
           >
-            Reprendre le trading
+            {t("killSwitch.resumeTrading")}
           </Button>
         ) : (
           <Button variant="contained" color="error" onClick={() => setDialog("engage")} sx={{ flexShrink: 0 }}>
-            Arrêter le trading
+            {t("killSwitch.stopTrading")}
           </Button>
         )}
       </Box>
@@ -249,7 +244,7 @@ export default function KillSwitchCard() {
         <>
           <Divider sx={{ mb: 1 }} />
           <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-            Historique récent
+            {t("killSwitch.recentHistory")}
           </Typography>
           <List dense disablePadding>
             {history.map((event, i) => (
@@ -263,9 +258,9 @@ export default function KillSwitchCard() {
 
       <ConfirmDialog
         open={dialog === "engage"}
-        title="Arrêter le trading"
-        phrase={ENGAGE_PHRASE}
-        confirmLabel="Arrêter le trading"
+        title={t("killSwitch.stopTrading")}
+        phrase={t("killSwitch.engagePhrase")}
+        confirmLabel={t("killSwitch.stopTrading")}
         confirmColor="error"
         busy={busy}
         error={error}
@@ -277,9 +272,9 @@ export default function KillSwitchCard() {
       />
       <ConfirmDialog
         open={dialog === "disengage"}
-        title="Reprendre le trading"
-        phrase={DISENGAGE_PHRASE}
-        confirmLabel="Reprendre le trading"
+        title={t("killSwitch.resumeTrading")}
+        phrase={t("killSwitch.disengagePhrase")}
+        confirmLabel={t("killSwitch.resumeTrading")}
         confirmColor="success"
         busy={busy}
         error={error}

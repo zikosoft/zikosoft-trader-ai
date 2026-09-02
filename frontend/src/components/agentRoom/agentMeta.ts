@@ -1,4 +1,5 @@
 import { AGENT_COLORS } from "../../theme";
+import type { Translate } from "../../i18n/messages";
 
 // §B28 "Live Debate" — libellé humain + initiale d'avatar par `agent_type`
 // (colonne réelle de `agent_messages`). Les QUATRE clés sont les seules
@@ -13,7 +14,11 @@ export const AGENT_LABELS: Record<string, string> = {
   execution_explanation_agent: "Execution & Explanation Agent",
 };
 
-export function agentLabel(agentType: string): string {
+export function agentLabel(agentType: string, t?: Translate): string {
+  if (t) {
+    const translated = t(`agent.${agentType}`);
+    if (translated !== `agent.${agentType}`) return translated;
+  }
   return AGENT_LABELS[agentType] ?? agentType;
 }
 
@@ -43,6 +48,11 @@ export const STATE_META: Record<string, { label: string; color: "success" | "err
   failed: { label: "Échec", color: "warning" },
 };
 
-export function stateMeta(state: string): { label: string; color: "success" | "error" | "info" | "warning" | "default" } {
-  return STATE_META[state] ?? { label: state, color: "default" };
+export function stateMeta(state: string, t?: Translate): { label: string; color: "success" | "error" | "info" | "warning" | "default" } {
+  const meta = STATE_META[state] ?? { label: state, color: "default" };
+  if (t) {
+    const translated = t(`agentState.${state}`);
+    return { ...meta, label: translated === `agentState.${state}` ? meta.label : translated };
+  }
+  return meta;
 }

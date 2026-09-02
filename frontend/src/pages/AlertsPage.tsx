@@ -16,6 +16,9 @@ import {
 import { useLivePolling } from "../hooks/useLivePolling";
 import { fetchAlerts, markAlertRead, markAllAlertsRead, type AlertItem, type AlertSeverity } from "../api/alerts";
 import { ApiError, describeError } from "../api/client";
+import { formatDateTime } from "../i18n/formatters";
+import { useI18n } from "../i18n/I18nContext";
+import { localizeValue } from "../i18n/domain";
 
 // §B20 — écran dédié Alerts, remplace l'état vide honnête posé en B25
 // ("l'Alert Dispatcher n'existe pas encore") maintenant que
@@ -32,11 +35,8 @@ function severityColor(severity: AlertSeverity): "error" | "warning" | "info" {
   return "info";
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString("fr-FR");
-}
-
 export default function AlertsPage() {
+  const { locale, t } = useI18n();
   const [unreadOnly, setUnreadOnly] = useState(false);
   const { data, error, loading, refresh } = useLivePolling(
     () => fetchAlerts({ unreadOnly, limit: 50 }),
@@ -83,9 +83,9 @@ export default function AlertsPage() {
     return (
       <Box sx={{ maxWidth: 720 }}>
         <Typography variant="h4" component="h1" sx={{ mb: 2 }}>
-          Alerts
+          {t("navigation.alerts")}
         </Typography>
-        <Alert severity="info">Aucun contexte d'exécution actif — choisis d'abord un contexte (Paper ou Replay).</Alert>
+        <Alert severity="info">{t("context.activeRequired")}</Alert>
       </Box>
     );
   }
@@ -94,7 +94,7 @@ export default function AlertsPage() {
     return (
       <Box sx={{ maxWidth: 720 }}>
         <Typography variant="h4" component="h1" sx={{ mb: 2 }}>
-          Alerts
+          {t("navigation.alerts")}
         </Typography>
         <Alert severity="error">{describeError(error)}</Alert>
       </Box>
@@ -107,22 +107,22 @@ export default function AlertsPage() {
   return (
     <Box sx={{ maxWidth: 720 }}>
       <Typography variant="h4" component="h1" sx={{ mb: 2 }}>
-        Alerts
+        {t("navigation.alerts")}
       </Typography>
 
       {error !== null && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          {describeError(error)} — dernières données connues affichées ci-dessous.
+          {t("common.showingLastKnownData", { error: describeError(error) })}
         </Alert>
       )}
 
       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2, flexWrap: "wrap", gap: 1 }}>
         <FormControlLabel
           control={<Switch checked={unreadOnly} onChange={(e) => setUnreadOnly(e.target.checked)} />}
-          label="Non lues uniquement"
+          label={t("alerts.unreadOnly")}
         />
         <Button size="small" variant="outlined" disabled={!hasUnread || markingAll} onClick={handleMarkAllRead}>
-          {markingAll ? "…" : "Tout marquer comme lu"}
+          {markingAll ? "…" : t("alerts.markAllRead")}
         </Button>
       </Box>
 
@@ -130,7 +130,7 @@ export default function AlertsPage() {
         {alerts.length === 0 ? (
           <Box sx={{ p: 3 }}>
             <Typography color="text.secondary">
-              {unreadOnly ? "Aucune alerte non lue." : "Aucune alerte pour ce contexte."}
+              {unreadOnly ? t("alerts.noUnread") : t("alerts.empty")}
             </Typography>
           </Box>
         ) : (
@@ -150,12 +150,12 @@ export default function AlertsPage() {
                 <ListItemText
                   primary={
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
-                      <Chip label={alert.severity} size="small" color={severityColor(alert.severity)} />
-                      <Chip label={alert.category} size="small" variant="outlined" />
+                      <Chip label={localizeValue(t, `alertSeverity.${alert.severity}`, alert.severity)} size="small" color={severityColor(alert.severity)} />
+                      <Chip label={localizeValue(t, `alertCategory.${alert.category}`, alert.category)} size="small" variant="outlined" />
                       <Typography component="span" sx={{ fontWeight: alert.is_read ? 400 : 600 }}>
                         {alert.title}
                       </Typography>
-                      {!alert.is_read && <Chip label="non lue" size="small" color="primary" variant="outlined" />}
+                      {!alert.is_read && <Chip label={t("alerts.unread")} size="small" color="primary" variant="outlined" />}
                     </Box>
                   }
                   secondary={
@@ -164,7 +164,7 @@ export default function AlertsPage() {
                         {alert.message}
                       </Typography>
                       <Typography component="span" variant="caption" color="text.secondary">
-                        {formatDate(alert.created_at)}
+                        {formatDateTime(locale, alert.created_at)}
                       </Typography>
                     </>
                   }

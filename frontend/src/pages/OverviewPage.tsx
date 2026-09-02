@@ -9,6 +9,7 @@ import PositionsAllocation from "./overview/PositionsAllocation";
 import { AgentActivityCard, OrdersCard, RiskCard, StrategiesCard } from "./overview/ActivityWidgets";
 import { AlertsWidgetCard, MarketWidgetCard, SystemHealthAndKillSwitchCard } from "./overview/StatusWidgets";
 import ColdStartView from "./overview/ColdStartView";
+import { useI18n } from "../i18n/I18nContext";
 
 // §B26 "Dashboard principal" — dépend de B18 (portefeuille), B22 (santé
 // système, via StatusWidgets), B25 (ce shell). B20 (notifications in-app)
@@ -22,6 +23,7 @@ import ColdStartView from "./overview/ColdStartView";
 // tour pour ce contexte (voir B18) — c'est le signal RÉEL utilisé ici,
 // jamais une portfolio_value à zéro qui prétendrait représenter un compte.
 export default function OverviewPage() {
+  const { t } = useI18n();
   const { contextState, onContextChanged } = useOutletContext<AppShellOutletContext>();
   const { data: summary, error, loading } = useLivePolling(fetchPortfolioSummary, 5000);
 
@@ -51,7 +53,7 @@ export default function OverviewPage() {
     return (
       <Box>
         <Typography variant="h4" component="h1" sx={{ mb: 2 }}>
-          Overview
+          {t("navigation.overview")}
         </Typography>
         <Alert severity="error">{describeError(error)}</Alert>
       </Box>
@@ -76,12 +78,12 @@ export default function OverviewPage() {
   return (
     <Box>
       <Typography variant="h4" component="h1" sx={{ mb: 2 }}>
-        Overview
+        {t("navigation.overview")}
       </Typography>
 
       {error !== null && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          {describeError(error)} — dernières données connues affichées ci-dessous.
+          {t("common.showingLastKnownData", { error: describeError(error) })}
         </Alert>
       )}
 

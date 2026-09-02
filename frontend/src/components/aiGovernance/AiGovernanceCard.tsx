@@ -14,10 +14,12 @@ import SmartToyOutlinedIcon from "@mui/icons-material/SmartToyOutlined";
 import { useLivePolling } from "../../hooks/useLivePolling";
 import { fetchAISettings, updateAISettings } from "../../api/aiSettings";
 import { describeError } from "../../api/client";
+import { useI18n } from "../../i18n/I18nContext";
 
 const POLL_INTERVAL_MS = 10000;
 
 export default function AiGovernanceCard() {
+  const { t } = useI18n();
   const { data: settings, refresh } = useLivePolling(fetchAISettings, POLL_INTERVAL_MS);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,12 +57,10 @@ export default function AiGovernanceCard() {
     <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
       <Typography variant="h6" component="h2" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
         <SmartToyOutlinedIcon color={enabled ? "primary" : "action"} />
-        Gouvernance IA
+        {t("aiGovernance.title")}
       </Typography>
       <Typography color="text.secondary" sx={{ mb: 2 }}>
-        Coupe tous les appels aux modèles IA (Market Agent, Strategy Agent, Risk Critic, Execution & Explanation) en un
-        clic, sans redéployer. Les agents basculent alors sur leur repli déterministe (HOLD / REQUIRES_APPROVAL /
-        données brutes sans résumé) — jamais un crash.
+        {t("aiGovernance.body")}
       </Typography>
 
       <Box
@@ -75,10 +75,10 @@ export default function AiGovernanceCard() {
       >
         <FormControlLabel
           control={<Switch checked={enabled} disabled={pending} onChange={(e) => handleToggle(e.target.checked)} />}
-          label={enabled ? "Agents IA activés" : "Agents IA désactivés"}
+          label={enabled ? t("aiGovernance.agentsEnabled") : t("aiGovernance.agentsDisabled")}
         />
         <Chip
-          label={enabled ? "Actifs" : "Coupés"}
+          label={enabled ? t("common.active") : t("aiGovernance.off")}
           color={enabled ? "success" : "warning"}
           variant={enabled ? "outlined" : "filled"}
           sx={{ flexShrink: 0 }}
@@ -87,9 +87,11 @@ export default function AiGovernanceCard() {
 
       {settings && (
         <Typography variant="body2" color="text.secondary">
-          Quota : {settings.max_calls_per_minute} appels/minute par agent · Modèles : {settings.high_stakes_model}{" "}
-          (décisions) / {settings.low_stakes_model} (résumés). Le plafond de dépense global reste géré directement dans
-          la console Anthropic, hors périmètre de cet écran.
+          {t("aiGovernance.quota", {
+            calls: settings.max_calls_per_minute,
+            highModel: settings.high_stakes_model,
+            lowModel: settings.low_stakes_model,
+          })}
         </Typography>
       )}
 

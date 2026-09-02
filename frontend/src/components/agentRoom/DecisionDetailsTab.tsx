@@ -3,6 +3,9 @@ import { Alert, Box, Chip, CircularProgress, Divider, Paper, Stack, Typography }
 import { fetchDecisionChain, type DecisionChainResponse } from "../../api/agentRoom";
 import { useAgentRoom } from "../../useAgentRoom";
 import { agentColor } from "./agentMeta";
+import { formatCurrency, formatDateTime } from "../../i18n/formatters";
+import { useI18n } from "../../i18n/I18nContext";
+import { localizeValue } from "../../i18n/domain";
 
 // §B28 "Decision Details" (checklist "lien stratégie/risque/ordre") —
 // reconstitue la chaîne PROPOSAL → CRITIQUE → décision Risk Engine →
@@ -54,14 +57,6 @@ function useDecisionChain(): LoadState {
   return state;
 }
 
-function formatTimestamp(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
-  }
-}
-
 function ChainSection({
   title,
   color,
@@ -92,6 +87,7 @@ function ChainSection({
 }
 
 export default function DecisionDetailsTab({ dense = false }: { dense?: boolean }) {
+  const { locale, t } = useI18n();
   const { selectedWindow } = useAgentRoom();
   const { data, error, loading } = useDecisionChain();
 
@@ -99,8 +95,7 @@ export default function DecisionDetailsTab({ dense = false }: { dense?: boolean 
     return (
       <Box sx={{ p: dense ? 1 : 2 }}>
         <Typography variant="body2" color="text.secondary">
-          Cliquez un message dans l'onglet Live Debate pour afficher sa chaîne de décision complète (proposition,
-          critique, décision du Risk Engine, explication, ordre).
+          {t("agentRoom.clickMessageForChain")}
         </Typography>
       </Box>
     );
@@ -113,7 +108,7 @@ export default function DecisionDetailsTab({ dense = false }: { dense?: boolean 
       <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, p: 3 }}>
         <CircularProgress size={24} />
         <Typography variant="body2" color="text.secondary">
-          Analyse en cours, cela peut prendre quelques secondes…
+          {t("agentRoom.analysisInProgress")}
         </Typography>
       </Box>
     );
@@ -122,7 +117,7 @@ export default function DecisionDetailsTab({ dense = false }: { dense?: boolean 
   if (error || !data) {
     return (
       <Alert severity="error" sx={{ m: dense ? 1 : 2 }}>
-        Impossible de charger la chaîne de décision.
+        {t("agentRoom.loadDecisionError")}
       </Alert>
     );
   }
@@ -131,25 +126,25 @@ export default function DecisionDetailsTab({ dense = false }: { dense?: boolean 
     <Box sx={{ height: "100%", overflowY: "auto", p: dense ? 1 : 1.5 }}>
       <Box sx={{ mb: 1 }}>
         <Typography variant={dense ? "body2" : "subtitle1"} sx={{ fontWeight: 600 }}>
-          {data.strategy_name ?? "Stratégie"} {data.strategy_type_code ? `(${data.strategy_type_code})` : ""} —{" "}
+          {data.strategy_name ?? t("strategy.generic")} {data.strategy_type_code ? `(${data.strategy_type_code})` : ""} —{" "}
           {data.symbol}
         </Typography>
         <Typography variant="caption" color="text.secondary">
-          Bougie : {data.market_data_timestamp ?? "—"}
+          {t("agentRoom.candleLabel", { timestamp: data.market_data_timestamp ?? "—" })}
         </Typography>
       </Box>
       <Divider sx={{ mb: 1 }} />
       <Stack spacing={1}>
-        <ChainSection title="Proposition (Strategy Agent)" color={agentColor("strategy_agent")} present={!!data.proposal} dense={dense}>
+        <ChainSection title={t("decisionChain.proposal")} color={agentColor("strategy_agent")} present={!!data.proposal} dense={dense}>
           {data.proposal && (
             <>
               <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", alignItems: "center" }}>
-                <Chip label={data.proposal.outcome} size="small" />
+                <Chip label={localizeValue(t, `signal.${data.proposal.outcome}`, data.proposal.outcome)} size="small" />
                 {data.proposal.confidence !== null && (
-                  <Chip label={`Confiance ${(data.proposal.confidence / 100).toFixed(0)}%`} size="small" variant="outlined" />
+                  <Chip label={t("common.confidence", { value: (data.proposal.confidence / 100).toFixed(0) })} size="small" variant="outlined" />
                 )}
                 <Typography variant="caption" color="text.secondary">
-                  {formatTimestamp(data.proposal.created_at)}
+                  {formatDateTime(locale, data.proposal.created_at)}
                 </Typography>
               </Stack>
               {data.proposal.reasoning_text && (
@@ -161,16 +156,16 @@ export default function DecisionDetailsTab({ dense = false }: { dense?: boolean 
           )}
         </ChainSection>
 
-        <ChainSection title="Critique (Risk Critic Agent)" color={agentColor("risk_critic_agent")} present={!!data.critique} dense={dense}>
+        <ChainSection title={t("decisionChain.critique")} color={agentColor("risk_critic_agent")} present={!!data.critique} dense={dense}>
           {data.critique && (
             <>
               <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", alignItems: "center" }}>
-                <Chip label={data.critique.outcome} size="small" />
+                <Chip label={localizeValue(t, `signal.${data.critique.outcome}`, data.critique.outcome)} size="small" />
                 {data.critique.confidence !== null && (
-                  <Chip label={`Confiance ${(data.critique.confidence / 100).toFixed(0)}%`} size="small" variant="outlined" />
+                  <Chip label={t("common.confidence", { value: (data.critique.confidence / 100).toFixed(0) })} size="small" variant="outlined" />
                 )}
                 <Typography variant="caption" color="text.secondary">
-                  {formatTimestamp(data.critique.created_at)}
+                  {formatDateTime(locale, data.critique.created_at)}
                 </Typography>
               </Stack>
               {data.critique.reasoning_text && (
@@ -182,13 +177,13 @@ export default function DecisionDetailsTab({ dense = false }: { dense?: boolean 
           )}
         </ChainSection>
 
-        <ChainSection title="Décision (Risk Engine)" color={agentColor("risk_engine")} present={!!data.risk_decision} dense={dense}>
+        <ChainSection title={t("decisionChain.riskDecision")} color={agentColor("risk_engine")} present={!!data.risk_decision} dense={dense}>
           {data.risk_decision && (
             <>
               <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", alignItems: "center" }}>
-                <Chip label={data.risk_decision.outcome} size="small" />
+                <Chip label={localizeValue(t, `riskOutcome.${data.risk_decision.outcome}`, data.risk_decision.outcome)} size="small" />
                 <Typography variant="caption" color="text.secondary">
-                  {formatTimestamp(data.risk_decision.created_at)}
+                  {formatDateTime(locale, data.risk_decision.created_at)}
                 </Typography>
               </Stack>
               {data.risk_decision.reasons.length > 0 && (
@@ -201,7 +196,7 @@ export default function DecisionDetailsTab({ dense = false }: { dense?: boolean 
         </ChainSection>
 
         <ChainSection
-          title="Explication (Execution & Explanation Agent)"
+          title={t("decisionChain.explanation")}
           color={agentColor("execution_explanation_agent")}
           present={!!data.explanation}
           dense={dense}
@@ -209,9 +204,9 @@ export default function DecisionDetailsTab({ dense = false }: { dense?: boolean 
           {data.explanation && (
             <>
               <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", alignItems: "center" }}>
-                <Chip label={data.explanation.outcome} size="small" />
+                <Chip label={localizeValue(t, `signal.${data.explanation.outcome}`, data.explanation.outcome)} size="small" />
                 <Typography variant="caption" color="text.secondary">
-                  {formatTimestamp(data.explanation.created_at)}
+                  {formatDateTime(locale, data.explanation.created_at)}
                 </Typography>
               </Stack>
               {data.explanation.novice_summary && (
@@ -228,13 +223,13 @@ export default function DecisionDetailsTab({ dense = false }: { dense?: boolean 
           )}
         </ChainSection>
 
-        <ChainSection title="Ordre" color="text.primary" present={!!data.order} dense={dense}>
+        <ChainSection title={t("decisionChain.order")} color="text.primary" present={!!data.order} dense={dense}>
           {data.order && (
             <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", alignItems: "center" }}>
-              <Chip label={data.order.side} size="small" />
-              <Chip label={data.order.status} size="small" variant="outlined" />
-              {data.order.notional !== null && <Typography variant="body2">{data.order.notional} $</Typography>}
-              {data.order.quantity !== null && <Typography variant="body2">{data.order.quantity} titres</Typography>}
+              <Chip label={data.order.side === "buy" ? t("orderSide.buy") : t("orderSide.sell")} size="small" />
+              <Chip label={localizeValue(t, `status.${data.order.status.toUpperCase()}`, data.order.status)} size="small" variant="outlined" />
+              {data.order.notional !== null && <Typography variant="body2">{formatCurrency(locale, data.order.notional)}</Typography>}
+              {data.order.quantity !== null && <Typography variant="body2">{t("agentRoom.shares", { count: data.order.quantity })}</Typography>}
             </Stack>
           )}
         </ChainSection>

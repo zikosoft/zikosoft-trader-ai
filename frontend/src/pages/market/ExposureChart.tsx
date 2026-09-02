@@ -2,6 +2,8 @@ import { useMemo } from "react";
 import { Box, Typography } from "@mui/material";
 import type { EChartsOption } from "echarts";
 import { useEchartsInstance } from "./useEchartsInstance";
+import { useI18n } from "../../i18n/I18nContext";
+import { formatCurrency, formatNumber } from "../../i18n/formatters";
 
 // §B27 "Exposition" — barre empilée horizontale cash vs. investi, calculée
 // depuis les MÊMES positions/cash déjà chargés par Overview/Market (aucune
@@ -18,6 +20,7 @@ export default function ExposureChart({
   invested: number;
   themeMode: "light" | "dark";
 }) {
+  const { locale, t } = useI18n();
   const total = cash + invested;
   const option = useMemo<EChartsOption | null>(() => {
     if (total <= 0) return null;
@@ -25,13 +28,19 @@ export default function ExposureChart({
       grid: { left: 8, right: 8, top: 8, bottom: 8 },
       xAxis: { type: "value", show: false, max: total },
       yAxis: { type: "category", show: false, data: ["exposition"] },
-      tooltip: { trigger: "item", formatter: "{b}: ${c}" },
+      tooltip: {
+        trigger: "item",
+        formatter: (params: unknown) => {
+          const item = params as { seriesName: string; value: number };
+          return `${item.seriesName}: ${formatCurrency(locale, item.value)}`;
+        },
+      },
       series: [
-        { name: "Investi", type: "bar", stack: "total", data: [invested], itemStyle: { color: "#42a5f5" }, barWidth: 28 },
-        { name: "Cash", type: "bar", stack: "total", data: [cash], itemStyle: { color: "#90a4ae" }, barWidth: 28 },
+        { name: t("charts.invested"), type: "bar", stack: "total", data: [invested], itemStyle: { color: "#42a5f5" }, barWidth: 28 },
+        { name: t("portfolioStats.cash"), type: "bar", stack: "total", data: [cash], itemStyle: { color: "#90a4ae" }, barWidth: 28 },
       ],
     };
-  }, [cash, invested, total]);
+  }, [cash, invested, locale, t, total]);
 
   const containerRef = useEchartsInstance(option, themeMode);
 
@@ -43,11 +52,14 @@ export default function ExposureChart({
       <Box ref={containerRef} sx={{ width: "100%", height: 60 }} />
       {investedPct === null ? (
         <Typography color="text.secondary" sx={{ py: 1 }}>
-          Pas encore de portefeuille à ce jour.
+          {t("charts.noPortfolioToday")}
         </Typography>
       ) : (
         <Typography variant="caption" color="text.secondary">
-          {investedPct}% investi · {(100 - Number(investedPct)).toFixed(1)}% cash
+          {t("charts.exposureSummary", {
+            invested: formatNumber(locale, Number(investedPct), { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+            cash: formatNumber(locale, 100 - Number(investedPct), { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+          })}
         </Typography>
       )}
     </Box>

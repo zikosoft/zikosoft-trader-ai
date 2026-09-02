@@ -24,6 +24,8 @@ import {
   type ReplayDataset,
   type ReplaySession,
 } from "../api/replay";
+import { formatDateTime, formatNumber } from "../i18n/formatters";
+import { useI18n } from "../i18n/I18nContext";
 
 // §écran dédié Replay (28/08 — fermeture du dernier gap réel signalé par
 // Zac : `ReplayPage` était encore un `PlaceholderPage` alors que toutes les
@@ -37,20 +39,8 @@ import {
 // de vitesses x1/x2/x5/x10, pas de pipeline stratégie/ordres branché — ça,
 // c'est l'Étape B du Replay Engine (voir docstring backend
 // `routers/replay.py`), hors scope ici.
-function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  try {
-    return new Date(iso).toLocaleString("fr-FR");
-  } catch {
-    return iso;
-  }
-}
-
-function formatNum(n: number): string {
-  return n.toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
 export default function ReplayPage() {
+  const { locale, t } = useI18n();
   const [dataset, setDataset] = useState<ReplayDataset | null>(null);
   const [datasetError, setDatasetError] = useState<unknown>(null);
   const [datasetLoading, setDatasetLoading] = useState(true);
@@ -142,10 +132,10 @@ export default function ReplayPage() {
     return (
       <Box>
         <Typography variant="h4" component="h1" sx={{ mb: 2 }}>
-          Replay
+          {t("navigation.replay")}
         </Typography>
         <Alert severity="info">
-          Aucun dataset Replay disponible pour le moment. {datasetError.message}
+          {t("replay.noDataset", { error: datasetError.message })}
         </Alert>
       </Box>
     );
@@ -155,7 +145,7 @@ export default function ReplayPage() {
     return (
       <Box>
         <Typography variant="h4" component="h1" sx={{ mb: 2 }}>
-          Replay
+          {t("navigation.replay")}
         </Typography>
         <Alert severity="error">{describeError(datasetError)}</Alert>
       </Box>
@@ -176,26 +166,32 @@ export default function ReplayPage() {
   return (
     <Box>
       <Typography variant="h4" component="h1" sx={{ mb: 2 }}>
-        Replay
+        {t("navigation.replay")}
       </Typography>
 
       <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
         <Typography variant="h6" component="h2" sx={{ mb: 1 }}>
-          Dataset
+          {t("replay.dataset")}
         </Typography>
         <Typography color="text.secondary" sx={{ mb: 1 }}>
-          Journée du {dataset.trading_day} ({dataset.timezone}) — {dataset.symbols.join(", ")} —{" "}
-          {dataset.total_bars} bougies.
+          {t("replay.datasetSummary", {
+            day: dataset.trading_day,
+            timezone: dataset.timezone,
+            symbols: dataset.symbols.join(", "),
+            bars: dataset.total_bars,
+          })}
         </Typography>
         <Typography variant="caption" color="text.secondary">
-          dataset_id : {dataset.dataset_id} · checksum : {dataset.checksum}
+          {t("replay.datasetMeta", { id: dataset.dataset_id, checksum: dataset.checksum })}
         </Typography>
       </Paper>
 
       {wrongContext && (
         <Alert severity="info" sx={{ mb: 2 }}>
-          {(sessionError as ApiError).message} — passez en contexte « Historical Replay » (menu en haut) pour piloter
-          une session de lecture.
+          {t("replay.wrongContext", {
+            error: (sessionError as ApiError).message,
+            context: t("context.REPLAY"),
+          })}
         </Alert>
       )}
 
@@ -212,18 +208,18 @@ export default function ReplayPage() {
             }}
           >
             <Typography variant="h6" component="h2">
-              Session de lecture
+              {t("replay.session")}
             </Typography>
             <Box sx={{ display: "flex", gap: 1 }}>
               <Button variant="outlined" onClick={handleReset} disabled={busy}>
-                Réinitialiser
+                {t("replay.reset")}
               </Button>
               <Button
                 variant="contained"
                 onClick={handleAdvance}
                 disabled={busy || (session?.is_finished ?? false)}
               >
-                Avancer d'une bougie
+                {t("replay.advance")}
               </Button>
             </Box>
           </Box>
@@ -236,8 +232,7 @@ export default function ReplayPage() {
 
           {noSessionYet && !session && (
             <Alert severity="info" sx={{ mb: 2 }}>
-              Aucune session démarrée pour ce contexte — cliquez sur « Réinitialiser » pour démarrer la lecture au
-              début du dataset.
+              {t("replay.noSession", { reset: t("replay.reset") })}
             </Alert>
           )}
 
@@ -245,12 +240,16 @@ export default function ReplayPage() {
             <>
               <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 2, flexWrap: "wrap" }}>
                 <Chip
-                  label={session.is_finished ? "Terminé" : "En cours"}
+                  label={session.is_finished ? t("status.COMPLETED") : t("status.RUNNING")}
                   color={session.is_finished ? "default" : "success"}
                   variant={session.is_finished ? "outlined" : "filled"}
                 />
                 <Typography variant="body2" color="text.secondary">
-                  Bougie {session.current_index + 1} / {session.total_bars} — {formatDate(session.current_timestamp)}
+                  {t("replay.candleProgress", {
+                    current: session.current_index + 1,
+                    total: session.total_bars,
+                    time: formatDateTime(locale, session.current_timestamp),
+                  })}
                 </Typography>
               </Box>
               <LinearProgress
@@ -267,23 +266,23 @@ export default function ReplayPage() {
                 <Table size="small">
                   <TableHead>
                     <TableRow>
-                      <TableCell>Symbole</TableCell>
-                      <TableCell align="right">Ouverture</TableCell>
-                      <TableCell align="right">Plus haut</TableCell>
-                      <TableCell align="right">Plus bas</TableCell>
-                      <TableCell align="right">Clôture</TableCell>
-                      <TableCell align="right">Volume</TableCell>
+                      <TableCell>{t("common.symbol")}</TableCell>
+                      <TableCell align="right">{t("replay.open")}</TableCell>
+                      <TableCell align="right">{t("replay.high")}</TableCell>
+                      <TableCell align="right">{t("replay.low")}</TableCell>
+                      <TableCell align="right">{t("replay.close")}</TableCell>
+                      <TableCell align="right">{t("replay.volume")}</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {Object.entries(session.current_bars).map(([symbol, bar]) => (
                       <TableRow key={symbol}>
                         <TableCell>{symbol}</TableCell>
-                        <TableCell align="right">{formatNum(bar.open)}</TableCell>
-                        <TableCell align="right">{formatNum(bar.high)}</TableCell>
-                        <TableCell align="right">{formatNum(bar.low)}</TableCell>
-                        <TableCell align="right">{formatNum(bar.close)}</TableCell>
-                        <TableCell align="right">{formatNum(bar.volume)}</TableCell>
+                        <TableCell align="right">{formatNumber(locale, bar.open, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                        <TableCell align="right">{formatNumber(locale, bar.high, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                        <TableCell align="right">{formatNumber(locale, bar.low, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                        <TableCell align="right">{formatNumber(locale, bar.close, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                        <TableCell align="right">{formatNumber(locale, bar.volume, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -295,8 +294,7 @@ export default function ReplayPage() {
       )}
 
       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 2 }}>
-        Lecture manuelle bougie-par-bougie (Étape A). La lecture automatique à vitesses x1/x2/x5/x10 reste l'Étape B
-        du Replay Engine.
+        {t("replay.manualNote")}
       </Typography>
     </Box>
   );

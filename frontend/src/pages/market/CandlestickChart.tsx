@@ -13,6 +13,7 @@ import {
 } from "lightweight-charts";
 import { Box, Typography } from "@mui/material";
 import type { Bar, DecisionMarkersResponse, OrderMarker } from "../../api/market";
+import { useI18n } from "../../i18n/I18nContext";
 
 // §B27 "Graphiques marché et analytics" — TradingView Lightweight Charts.
 // Bibliothèque npm open-source (MIT), embarquée localement (§B27
@@ -64,6 +65,7 @@ export default function CandlestickChart({
   showMovingAverages: boolean;
   onMarkerClick: (payload: MarkerClickPayload) => void;
 }) {
+  const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -158,7 +160,7 @@ export default function CandlestickChart({
         position: isBuy ? "belowBar" : "aboveBar",
         color: isBuy ? "#26a69a" : "#ef5350",
         shape: isBuy ? "arrowUp" : "arrowDown",
-        text: isBuy ? "BUY" : "SELL",
+        text: isBuy ? t("signal.BUY") : t("signal.SELL"),
       });
       lookup.set(time, { kind: "order", order });
     }
@@ -172,7 +174,7 @@ export default function CandlestickChart({
           position: "inBar",
           color: "#42a5f5",
           shape: "circle",
-          text: `IA:${proposal.outcome}`,
+          text: t("charts.aiMarker", { outcome: proposal.outcome }),
         });
         lookup.set(time, { kind: "proposal", proposal });
       }
@@ -184,7 +186,7 @@ export default function CandlestickChart({
           position: "aboveBar",
           color: "#fb8c00",
           shape: "square",
-          text: "REJECTED",
+          text: t("signal.REJECT"),
         });
         lookup.set(time, { kind: "risk_event", riskEvent });
       }
@@ -213,13 +215,13 @@ export default function CandlestickChart({
       if (slPrice !== null && !seenLevels.has(`sl:${slPrice}`)) {
         seenLevels.add(`sl:${slPrice}`);
         priceLinesRef.current.push(
-          candleSeries.createPriceLine({ price: slPrice, color: "#ef5350", lineStyle: 2, title: "Stop-loss", lineWidth: 1 }),
+          candleSeries.createPriceLine({ price: slPrice, color: "#ef5350", lineStyle: 2, title: t("charts.stopLoss"), lineWidth: 1 }),
         );
       }
       if (tpPrice !== null && !seenLevels.has(`tp:${tpPrice}`)) {
         seenLevels.add(`tp:${tpPrice}`);
         priceLinesRef.current.push(
-          candleSeries.createPriceLine({ price: tpPrice, color: "#26a69a", lineStyle: 2, title: "Take-profit", lineWidth: 1 }),
+          candleSeries.createPriceLine({ price: tpPrice, color: "#26a69a", lineStyle: 2, title: t("charts.takeProfit"), lineWidth: 1 }),
         );
       }
     }
@@ -332,11 +334,11 @@ export default function CandlestickChart({
     <Box>
       <Box ref={containerRef} sx={{ width: "100%", height: 420 }} />
       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
-        Charts by{" "}
+        {t("charts.by")} {" "}
         <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">
           TradingView
         </a>{" "}
-        (Lightweight Charts™) — aucune clé ni compte TradingView requis.
+        {t("charts.tradingViewNote")}
       </Typography>
     </Box>
   );

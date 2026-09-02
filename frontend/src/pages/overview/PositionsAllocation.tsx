@@ -3,12 +3,8 @@ import { useLivePolling } from "../../hooks/useLivePolling";
 import { fetchPositions } from "../../api/portfolio";
 import { useThemeMode } from "../../useThemeMode";
 import AllocationChart from "../market/AllocationChart";
-
-const CURRENCY = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
-
-function formatMoney(value: number | null): string {
-  return value === null ? "—" : CURRENCY.format(value);
-}
+import { formatCurrency } from "../../i18n/formatters";
+import { useI18n } from "../../i18n/I18nContext";
 
 // §B26 "Positions ouvertes" (table) — §B27 "Allocation" (ECharts, remplace
 // la version plate B26 liste + LinearProgress) : répartition calculée à
@@ -16,8 +12,10 @@ function formatMoney(value: number | null): string {
 // par `OverviewPage` — aucune nouvelle route backend, aucune donnée
 // fabriquée.
 export default function PositionsAllocation({ portfolioValue, cash }: { portfolioValue: number; cash: number }) {
+  const { locale, t } = useI18n();
   const { data, loading } = useLivePolling(fetchPositions, 5000);
   const { mode } = useThemeMode();
+  const formatMoney = (value: number | null) => (value === null ? "—" : formatCurrency(locale, value));
 
   if (loading && !data) {
     return <Skeleton variant="rectangular" height={220} sx={{ borderRadius: 1 }} />;
@@ -29,19 +27,19 @@ export default function PositionsAllocation({ portfolioValue, cash }: { portfoli
     <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="h6" component="h2" sx={{ mb: 1 }}>
-          Positions ouvertes
+          {t("positions.title")}
         </Typography>
         {positions.length === 0 ? (
-          <Typography color="text.secondary">Aucune position ouverte pour le moment.</Typography>
+          <Typography color="text.secondary">{t("positions.empty")}</Typography>
         ) : (
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell>Symbole</TableCell>
-                <TableCell align="right">Quantité</TableCell>
-                <TableCell align="right">Prix moyen</TableCell>
-                <TableCell align="right">Valeur marché</TableCell>
-                <TableCell align="right">P&L latent</TableCell>
+                <TableCell>{t("common.symbol")}</TableCell>
+                <TableCell align="right">{t("common.quantity")}</TableCell>
+                <TableCell align="right">{t("positions.averagePrice")}</TableCell>
+                <TableCell align="right">{t("positions.marketValue")}</TableCell>
+                <TableCell align="right">{t("positions.unrealizedPl")}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -75,16 +73,16 @@ export default function PositionsAllocation({ portfolioValue, cash }: { portfoli
 
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="h6" component="h2" sx={{ mb: 1 }}>
-          Allocation
+          {t("positions.allocation")}
         </Typography>
         {portfolioValue <= 0 ? (
-          <Typography color="text.secondary">Pas encore de données de portefeuille.</Typography>
+          <Typography color="text.secondary">{t("positions.noPortfolioData")}</Typography>
         ) : (
           <AllocationChart
             themeMode={mode}
             slices={[
               ...positions.map((p) => ({ name: p.symbol, value: p.market_value ?? 0 })),
-              { name: "Cash", value: cash },
+              { name: t("portfolioStats.cash"), value: cash },
             ]}
           />
         )}

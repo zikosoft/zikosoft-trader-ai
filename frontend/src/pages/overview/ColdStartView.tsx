@@ -5,8 +5,9 @@ import { fetchOnboardingStatus, type OnboardingStatus } from "../../api/onboardi
 import { fetchStrategyDefinitions, type StrategyDefinition } from "../../api/strategies";
 import { selectContext, type ContextListResponse } from "../../api/context";
 import type { PortfolioSummary } from "../../api/portfolio";
-
-const CURRENCY = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+import { formatCurrency } from "../../i18n/formatters";
+import { useI18n } from "../../i18n/I18nContext";
+import { strategyLabel } from "../../i18n/domain";
 
 // §B26 "Dashboard sans activité" — état honnête affiché tant qu'aucun tour
 // du Portfolio Worker n'a encore eu lieu pour le contexte actif
@@ -32,6 +33,7 @@ export default function ColdStartView({
   // chargé par `OverviewPage`, aucune requête supplémentaire.
   summary?: PortfolioSummary | null;
 }) {
+  const { locale, t } = useI18n();
   const navigate = useNavigate();
   const isPaper = contextState.active_kind === "PAPER";
 
@@ -75,57 +77,55 @@ export default function ColdStartView({
   return (
     <Box>
       <Typography variant="h4" component="h1" sx={{ mb: 1 }}>
-        Overview
+        {t("navigation.overview")}
       </Typography>
       <Typography color="text.secondary" sx={{ mb: 3 }}>
-        Pas encore d'activité sur ce contexte — aucune performance n'est encore disponible.
+        {t("coldStart.introduction")}
       </Typography>
 
       <Grid container spacing={2} sx={{ mb: 3 }}>
         <Grid size={{ xs: 12, md: 6 }}>
           <Paper variant="outlined" sx={{ p: 2, height: "100%" }}>
             <Typography variant="h6" component="h2" sx={{ mb: 1.5 }}>
-              Compte
+              {t("settings.account")}
             </Typography>
             {isPaper ? (
               onboarding === undefined ? (
                 <Skeleton variant="rectangular" height={90} sx={{ borderRadius: 1 }} />
               ) : (
                 <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                  <Chip label="Compte Alpaca Paper connecté" color="success" size="small" sx={{ width: "fit-content" }} />
+                  <Chip label={t("coldStart.paperConnected")} color="success" size="small" sx={{ width: "fit-content" }} />
                   <Typography>
-                    Cash :{" "}
-                    <strong>{cash !== null ? CURRENCY.format(cash) : "non disponible pour l'instant"}</strong>
+                      {t("coldStart.cashLabel")} {" "}
+                      <strong>{cash !== null ? formatCurrency(locale, cash) : t("coldStart.cashUnavailable")}</strong>
                   </Typography>
                   {cash !== null && (
-                    <Chip label="100 % Cash — aucune position ouverte" size="small" variant="outlined" sx={{ width: "fit-content" }} />
+                    <Chip label={t("coldStart.cashOnly")} size="small" variant="outlined" sx={{ width: "fit-content" }} />
                   )}
                   <Typography color="text.secondary" variant="body2">
-                    Agents IA : {agentsReady ? "prêts" : "pas encore prêts"}
+                    {t("coldStart.aiAgents", { status: agentsReady ? t("coldStart.ready") : t("coldStart.notReady") })}
                   </Typography>
                 </Box>
               )
             ) : (
               <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                <Chip label="Contexte Historical Replay actif" color="warning" size="small" sx={{ width: "fit-content" }} />
+                <Chip label={t("coldStart.replayActive")} color="warning" size="small" sx={{ width: "fit-content" }} />
                 {cash !== null ? (
                   <>
                     <Typography>
-                      Cash : <strong>{CURRENCY.format(cash)}</strong>
+                      {t("coldStart.cashLabel")} <strong>{formatCurrency(locale, cash)}</strong>
                     </Typography>
-                    <Chip label="100 % Cash — aucune position ouverte" size="small" variant="outlined" sx={{ width: "fit-content" }} />
+                    <Chip label={t("coldStart.cashOnly")} size="small" variant="outlined" sx={{ width: "fit-content" }} />
                   </>
                 ) : (
                   <Typography color="text.secondary">
-                    Aucun compte Alpaca requis en Replay — les métriques de portefeuille pour ce contexte ne sont
-                    pas encore disponibles (Replay Engine, B19, encore à l'étape squelette).
+                    {t("coldStart.replayNoAccount")}
                   </Typography>
                 )}
               </Box>
             )}
             <Typography color="text.secondary" variant="body2" sx={{ mt: 1.5 }}>
-              État marché : non disponible pour l'instant (aucun endpoint de statut marché ne construit encore
-              cette donnée — voir B26/B27).
+              {t("coldStart.marketUnavailable")}
             </Typography>
           </Paper>
         </Grid>
@@ -133,16 +133,16 @@ export default function ColdStartView({
         <Grid size={{ xs: 12, md: 6 }}>
           <Paper variant="outlined" sx={{ p: 2, height: "100%" }}>
             <Typography variant="h6" component="h2" sx={{ mb: 1.5 }}>
-              Stratégies disponibles
+              {t("coldStart.availableStrategies")}
             </Typography>
             {definitions === null ? (
               <Skeleton variant="rectangular" height={90} sx={{ borderRadius: 1 }} />
             ) : definitions.length === 0 ? (
-              <Typography color="text.secondary">Aucune stratégie disponible pour le moment.</Typography>
+              <Typography color="text.secondary">{t("coldStart.noStrategies")}</Typography>
             ) : (
               <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
                 {definitions.map((d) => (
-                  <Chip key={d.id} label={d.name} size="small" variant="outlined" />
+                  <Chip key={d.id} label={strategyLabel(t, d.type_code, d.name)} size="small" variant="outlined" />
                 ))}
               </Box>
             )}
@@ -152,18 +152,18 @@ export default function ColdStartView({
 
       <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
         <Button variant="contained" onClick={() => navigate("/strategies")}>
-          Create Strategy
+          {t("coldStart.createStrategy")}
         </Button>
         {!isPaper ? null : (
           <Button variant="outlined" disabled={switching} onClick={handleLaunchReplay}>
-            Launch Replay
+            {t("coldStart.launchReplay")}
           </Button>
         )}
       </Box>
 
       {!isPaper && (
         <Alert severity="info" sx={{ mt: 3, maxWidth: 640 }}>
-          Contexte Historical Replay déjà actif.
+          {t("coldStart.replayAlreadyActive")}
         </Alert>
       )}
     </Box>

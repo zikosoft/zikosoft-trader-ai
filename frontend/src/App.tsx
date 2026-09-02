@@ -12,6 +12,7 @@ import IncidentBanner from "./IncidentBanner";
 import KillSwitchBanner from "./components/KillSwitchBanner";
 import LoginForm from "./LoginForm";
 import Onboarding from "./Onboarding";
+import { useI18n } from "./i18n/I18nContext";
 import OverviewPage from "./pages/OverviewPage";
 // §R29 (AVANCEMENT.md §38, observation posée en B25) — "candidat naturel :
 // React.lazy() par route dans App.tsx une fois plusieurs pages lourdes
@@ -83,6 +84,7 @@ function LoadingScreen() {
 }
 
 function AppContent() {
+  const { t } = useI18n();
   const [user, setUser] = useState<User | null | undefined>(undefined); // undefined = pas encore vérifié
   const [contextState, setContextState] = useState<ContextListResponse | null | undefined>(
     undefined, // undefined = pas encore chargé, null = erreur de chargement
@@ -128,7 +130,7 @@ function AppContent() {
     return (
       <Container maxWidth="sm" sx={{ py: 8 }}>
         <Typography color="error">
-          Impossible de charger les contextes Replay/Paper — vérifie que le backend répond.
+          {t("app.contextLoadError")}
         </Typography>
       </Container>
     );

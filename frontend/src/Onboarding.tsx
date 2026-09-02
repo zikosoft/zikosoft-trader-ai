@@ -32,12 +32,14 @@ import {
   type StepCode,
 } from "./api/onboarding";
 import {
-  PROFILE_LABELS,
   PROFILE_ORDER,
   fetchUserProfile,
   updateUserProfile,
   type ExperienceProfile,
 } from "./api/userProfile";
+import { formatCurrency } from "./i18n/formatters";
+import { useI18n } from "./i18n/I18nContext";
+import { profileLabel } from "./i18n/domain";
 
 // Onboarding Alpaca — comportement inchangé depuis B07, habillage Material
 // UI ajouté en B25 (§commentaire d'origine : "MUI arrive en bloc en B25,
@@ -46,15 +48,15 @@ import {
 // "Bloquer le dashboard Paper sans compte valide") — voir l'intégration
 // dans App.tsx, également inchangée.
 
-const STEP_LABELS: Record<StepCode, string> = {
-  credentials_validated: "Identifiants validés",
-  paper_environment_confirmed: "Environnement Paper confirmé",
-  account_synchronized: "Compte synchronisé",
-  portfolio_loaded: "Portefeuille chargé",
-  assets_synchronized: "Actifs synchronisés",
-  market_stream_established: "Flux de marché établi",
-  mcp_session_initialized: "Session MCP initialisée",
-  ai_agents_ready: "Agents IA prêts",
+const STEP_LABEL_KEYS: Record<StepCode, string> = {
+  credentials_validated: "onboarding.step.credentialsValidated",
+  paper_environment_confirmed: "onboarding.step.paperEnvironmentConfirmed",
+  account_synchronized: "onboarding.step.accountSynchronized",
+  portfolio_loaded: "onboarding.step.portfolioLoaded",
+  assets_synchronized: "onboarding.step.assetsSynchronized",
+  market_stream_established: "onboarding.step.marketStreamEstablished",
+  mcp_session_initialized: "onboarding.step.mcpSessionInitialized",
+  ai_agents_ready: "onboarding.step.aiAgentsReady",
 };
 
 const STATUS_ICON: Record<OnboardingStep["status"], React.ReactNode> = {
@@ -73,10 +75,10 @@ const STATUS_ICON: Record<OnboardingStep["status"], React.ReactNode> = {
 // de dialog de confirmation ici (contrairement à `ProfileCard.tsx` en
 // Settings) : à ce stade il n'y a pas encore de niveau d'autonomie établi à
 // "augmenter", seulement un premier choix.
-const PROFILE_DESCRIPTIONS: Record<ExperienceProfile, string> = {
-  novice: "1 stratégie active, 2 symboles, approbation obligatoire avant chaque ordre.",
-  intermediate: "2 stratégies actives, 5 symboles, approbation optionnelle.",
-  expert: "3 stratégies actives, 10 symboles, approbation configurable.",
+const PROFILE_DESCRIPTION_KEYS: Record<ExperienceProfile, string> = {
+  novice: "onboarding.profile.novice",
+  intermediate: "onboarding.profile.intermediate",
+  expert: "onboarding.profile.expert",
 };
 
 type Props = {
@@ -84,6 +86,7 @@ type Props = {
 };
 
 export default function Onboarding({ onConnected }: Props) {
+  const { locale, t } = useI18n();
   const [status, setStatus] = useState<OnboardingStatus | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [secretKey, setSecretKey] = useState("");
@@ -105,7 +108,7 @@ export default function Onboarding({ onConnected }: Props) {
         setStatus(result);
         if (result.account?.status === "connected") onConnected(result);
       })
-      .catch(() => setError("Impossible de contacter le serveur."))
+      .catch((err) => setError(describeError(err)))
       .finally(() => setPhase("idle"));
     fetchUserProfile()
       .then((result) => setProfile(result.profile))
@@ -177,7 +180,7 @@ export default function Onboarding({ onConnected }: Props) {
   if (phase === "loading") {
     return (
       <Container maxWidth="sm" sx={{ py: 8 }}>
-        <Typography>Chargement…</Typography>
+        <Typography>{t("common.loading")}</Typography>
       </Container>
     );
   }
@@ -200,22 +203,19 @@ export default function Onboarding({ onConnected }: Props) {
   return (
     <Container maxWidth="sm" sx={{ py: 6 }}>
       <Typography variant="h4" component="h1" sx={{ mb: 1 }}>
-        Connecter ton compte Alpaca Paper
+        {t("onboarding.title")}
       </Typography>
       <Typography color="text.secondary" sx={{ mb: 3 }}>
-        Fonds simulés uniquement — aucune carte bancaire requise, aucun argent réel ne sera jamais
-        engagé. Tes clés sont chiffrées avant d'être enregistrées et ne sont jamais renvoyées en
-        clair.
+        {t("onboarding.introduction")}
       </Typography>
 
       {!hasStarted && profile && (
         <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
           <Typography variant="h6" component="h2" sx={{ mb: 1 }}>
-            Ton profil d'expérience
+            {t("onboarding.profileTitle")}
           </Typography>
           <Typography color="text.secondary" sx={{ mb: 2 }}>
-            Modifiable à tout moment dans Settings. Détermine les limites par défaut de tes stratégies — les risques et
-            pertes potentiels restent toujours affichés, quel que soit le profil.
+            {t("onboarding.profileBody")}
           </Typography>
           <ToggleButtonGroup
             value={profile}
@@ -226,12 +226,12 @@ export default function Onboarding({ onConnected }: Props) {
           >
             {PROFILE_ORDER.map((p) => (
               <ToggleButton key={p} value={p}>
-                {PROFILE_LABELS[p]}
+                {profileLabel(t, p)}
               </ToggleButton>
             ))}
           </ToggleButtonGroup>
           <Typography variant="body2" color="text.secondary">
-            {PROFILE_DESCRIPTIONS[profile]}
+            {t(PROFILE_DESCRIPTION_KEYS[profile])}
           </Typography>
         </Paper>
       )}
@@ -241,7 +241,7 @@ export default function Onboarding({ onConnected }: Props) {
           <Box component="form" onSubmit={handleConnect} noValidate>
             <TextField
               id="apiKey"
-              label="API Key"
+              label={t("onboarding.apiKey")}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               fullWidth
@@ -250,7 +250,7 @@ export default function Onboarding({ onConnected }: Props) {
             />
             <TextField
               id="secretKey"
-              label="Secret Key"
+              label={t("onboarding.secretKey")}
               type={revealSecret ? "text" : "password"}
               value={secretKey}
               onChange={(e) => setSecretKey(e.target.value)}
@@ -261,7 +261,12 @@ export default function Onboarding({ onConnected }: Props) {
                 input: {
                   endAdornment: (
                     <InputAdornment position="end">
-                      <IconButton onClick={() => setRevealSecret((v) => !v)} edge="end" size="small">
+                      <IconButton
+                        onClick={() => setRevealSecret((v) => !v)}
+                        edge="end"
+                        size="small"
+                        aria-label={revealSecret ? t("onboarding.hideSecret") : t("onboarding.showSecret")}
+                      >
                         {revealSecret ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
                       </IconButton>
                     </InputAdornment>
@@ -280,7 +285,7 @@ export default function Onboarding({ onConnected }: Props) {
               disabled={phase === "connecting" || !apiKey || !secretKey}
               sx={{ mt: 3 }}
             >
-              {phase === "connecting" ? "Vérification…" : "Connect & Verify"}
+              {phase === "connecting" ? t("onboarding.verifying") : t("onboarding.connectAndVerify")}
             </Button>
           </Box>
         </Paper>
@@ -289,7 +294,7 @@ export default function Onboarding({ onConnected }: Props) {
       {hasStarted && status && (
         <Box sx={{ mt: 3 }}>
           <Typography variant="h6" component="h2" sx={{ mb: 1 }}>
-            Progression
+            {t("onboarding.progress")}
           </Typography>
           <List dense>
             {status.steps.map((step) => (
@@ -297,7 +302,7 @@ export default function Onboarding({ onConnected }: Props) {
                 <ListItem disableGutters>
                   <ListItemIcon sx={{ minWidth: 32 }}>{STATUS_ICON[step.status]}</ListItemIcon>
                   <ListItemText
-                    primary={STEP_LABELS[step.step_code]}
+                    primary={t(STEP_LABEL_KEYS[step.step_code])}
                     secondary={
                       step.status === "FAILED" && step.error_details?.message ? (
                         <>
@@ -310,7 +315,7 @@ export default function Onboarding({ onConnected }: Props) {
                               setDetailsOpenFor(detailsOpenFor === step.step_code ? null : step.step_code)
                             }
                           >
-                            View technical details
+                            {t("onboarding.viewTechnicalDetails")}
                           </Button>
                         </>
                       ) : step.status === "COMPLETED" && step.error_details?.note ? (
@@ -355,45 +360,36 @@ export default function Onboarding({ onConnected }: Props) {
           <Box sx={{ display: "flex", gap: 1 }}>
             {failedStep && (
               <Button variant="contained" onClick={handleRetry} disabled={phase === "retrying"}>
-                {phase === "retrying" ? "Nouvelle tentative…" : "Retry this step"}
+                {phase === "retrying" ? t("onboarding.retrying") : t("onboarding.retryStep")}
               </Button>
             )}
             <Button variant="outlined" color="inherit" onClick={handleRestart} disabled={phase === "restarting"}>
-              {phase === "restarting" ? "Réinitialisation…" : "Restart complete setup"}
+              {phase === "restarting" ? t("onboarding.restarting") : t("onboarding.restartSetup")}
             </Button>
           </Box>
 
           {status.account?.balance && (
             <Box sx={{ mt: 3 }}>
               <Typography variant="h6" component="h2" sx={{ mb: 1 }}>
-                Solde du compte
+                {t("onboarding.accountBalance")}
               </Typography>
               <List dense disablePadding>
                 <ListItem disableGutters>
                   <ListItemText
-                    primary="Cash"
-                    secondary={status.account.balance.cash.toLocaleString("fr-FR", {
-                      style: "currency",
-                      currency: "USD",
-                    })}
+                    primary={t("onboarding.cash")}
+                    secondary={formatCurrency(locale, status.account.balance.cash)}
                   />
                 </ListItem>
                 <ListItem disableGutters>
                   <ListItemText
-                    primary="Valeur du portefeuille"
-                    secondary={status.account.balance.portfolio_value.toLocaleString("fr-FR", {
-                      style: "currency",
-                      currency: "USD",
-                    })}
+                    primary={t("onboarding.portfolioValue")}
+                    secondary={formatCurrency(locale, status.account.balance.portfolio_value)}
                   />
                 </ListItem>
                 <ListItem disableGutters>
                   <ListItemText
-                    primary="Pouvoir d'achat"
-                    secondary={status.account.balance.buying_power.toLocaleString("fr-FR", {
-                      style: "currency",
-                      currency: "USD",
-                    })}
+                    primary={t("onboarding.buyingPower")}
+                    secondary={formatCurrency(locale, status.account.balance.buying_power)}
                   />
                 </ListItem>
               </List>

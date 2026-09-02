@@ -4,6 +4,8 @@ import { fetchAgentMessages, type AgentMessage } from "../../api/agentRoom";
 import { useLivePolling } from "../../hooks/useLivePolling";
 import { useAgentRoom } from "../../useAgentRoom";
 import { agentColor, agentInitials, agentLabel, stateMeta } from "./agentMeta";
+import { formatDateTime } from "../../i18n/formatters";
+import { useI18n } from "../../i18n/I18nContext";
 
 // §B28 "Live Debate" (checklist : "événements réels uniquement, jamais
 // fabriqués | avatar/couleur par agent | horodatage | état | confiance |
@@ -26,32 +28,25 @@ function windowKeyFromPayload(
   return null;
 }
 
-function evidenceChips(payload: Record<string, unknown>): { label: string; items: string[] } | null {
+function evidenceChips(payload: Record<string, unknown>, t: (key: string) => string): { label: string; items: string[] } | null {
   const riskFlags = payload.risk_flags;
   if (Array.isArray(riskFlags) && riskFlags.length > 0) {
-    return { label: "Signaux de risque", items: riskFlags.map(String) };
+    return { label: t("agentRoom.riskSignals"), items: riskFlags.map(String) };
   }
   const reasons = payload.reasons;
   if (Array.isArray(reasons) && reasons.length > 0) {
-    return { label: "Raisons", items: reasons.map(String) };
+    return { label: t("decision.reasons"), items: reasons.map(String) };
   }
   return null;
 }
 
-function formatTimestamp(iso: string): string {
-  try {
-    return new Date(iso).toLocaleString();
-  } catch {
-    return iso;
-  }
-}
-
 function MessageItem({ message, dense }: { message: AgentMessage; dense: boolean }) {
+  const { locale, t } = useI18n();
   const { selectDecision } = useAgentRoom();
   const color = agentColor(message.agent_type);
-  const state = stateMeta(message.state);
+  const state = stateMeta(message.state, t);
   const confidence = message.payload.confidence;
-  const evidence = evidenceChips(message.payload);
+  const evidence = evidenceChips(message.payload, t);
   const expertSummary =
     message.agent_type === "execution_explanation_agent" && typeof message.payload.expert_summary === "string"
       ? message.payload.expert_summary
@@ -76,14 +71,14 @@ function MessageItem({ message, dense }: { message: AgentMessage; dense: boolean
       <Box sx={{ minWidth: 0, flex: 1 }}>
         <Stack direction="row" spacing={1} useFlexGap sx={{ alignItems: "center", flexWrap: "wrap" }}>
           <Typography variant={dense ? "caption" : "body2"} sx={{ fontWeight: 600 }}>
-            {agentLabel(message.agent_type)}
+            {agentLabel(message.agent_type, t)}
           </Typography>
           <Chip label={state.label} color={state.color} size="small" />
           {typeof confidence === "number" && (
-            <Chip label={`Confiance ${(confidence / 100).toFixed(0)}%`} size="small" variant="outlined" />
+            <Chip label={t("common.confidence", { value: (confidence / 100).toFixed(0) })} size="small" variant="outlined" />
           )}
           <Typography variant="caption" color="text.secondary" sx={{ ml: "auto" }}>
-            {formatTimestamp(message.occurred_at)}
+            {formatDateTime(locale, message.occurred_at)}
           </Typography>
         </Stack>
         <Typography variant={dense ? "caption" : "body2"} sx={{ mt: 0.5, whiteSpace: "pre-wrap" }}>
@@ -91,7 +86,7 @@ function MessageItem({ message, dense }: { message: AgentMessage; dense: boolean
         </Typography>
         {expertSummary && (
           <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block", fontStyle: "italic" }}>
-            Résumé expert : {expertSummary}
+            {t("agentRoom.expertSummary", { summary: expertSummary })}
           </Typography>
         )}
         {evidence && (
@@ -106,7 +101,7 @@ function MessageItem({ message, dense }: { message: AgentMessage; dense: boolean
         )}
         {windowKey && (
           <Typography variant="caption" color="primary.main" sx={{ mt: 0.5, display: "block" }}>
-            Voir la chaîne de décision →
+            {t("agentRoom.viewDecisionChain")} →
           </Typography>
         )}
       </Box>
@@ -115,6 +110,7 @@ function MessageItem({ message, dense }: { message: AgentMessage; dense: boolean
 }
 
 export default function LiveDebateTab({ dense = false }: { dense?: boolean }) {
+  const { t } = useI18n();
   const { data, error, loading } = useLivePolling(() => fetchAgentMessages(100), POLL_INTERVAL_MS);
   const scrollRef = useRef<HTMLDivElement>(null);
   const messages = data?.messages ?? [];
@@ -133,7 +129,7 @@ export default function LiveDebateTab({ dense = false }: { dense?: boolean }) {
       <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, p: 3 }}>
         <CircularProgress size={24} />
         <Typography variant="body2" color="text.secondary">
-          Analyse en cours, cela peut prendre quelques secondes…
+          {t("agentRoom.analysisInProgress")}
         </Typography>
       </Box>
     );
@@ -142,7 +138,7 @@ export default function LiveDebateTab({ dense = false }: { dense?: boolean }) {
   if (error) {
     return (
       <Alert severity="error" sx={{ m: dense ? 1 : 2 }}>
-        Impossible de charger le fil de discussion des agents.
+        {t("agentRoom.loadMessagesError")}
       </Alert>
     );
   }
@@ -151,8 +147,7 @@ export default function LiveDebateTab({ dense = false }: { dense?: boolean }) {
     return (
       <Box sx={{ p: dense ? 1 : 2 }}>
         <Typography variant="body2" color="text.secondary">
-          Aucun échange entre agents pour le moment — dès qu'une stratégie active évalue une bougie, sa proposition
-          apparaîtra ici.
+          {t("agentRoom.noMessages")}
         </Typography>
       </Box>
     );

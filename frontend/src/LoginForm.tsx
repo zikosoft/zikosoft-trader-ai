@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Alert, Box, Button, Container, Paper, TextField, Typography } from "@mui/material";
 import { describeError } from "./api/client";
 import { fetchDemoCredentials, login, type User } from "./api/auth";
+import { useI18n } from "./i18n/I18nContext";
 
 // Écran de connexion — comportement inchangé depuis B05 (formulaire
 // préchargé avec les identifiants démo), habillage Material UI ajouté en
@@ -12,6 +13,7 @@ type Props = {
 };
 
 export default function LoginForm({ onLoggedIn }: Props) {
+  const { t } = useI18n();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +57,7 @@ export default function LoginForm({ onLoggedIn }: Props) {
         <Box component="form" onSubmit={handleSubmit} noValidate>
           <TextField
             id="email"
-            label="Email"
+            label={t("login.email")}
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             fullWidth
@@ -64,7 +66,7 @@ export default function LoginForm({ onLoggedIn }: Props) {
           />
           <TextField
             id="password"
-            label="Mot de passe"
+            label={t("login.password")}
             type="password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
@@ -74,7 +76,7 @@ export default function LoginForm({ onLoggedIn }: Props) {
           />
           {demoHint && (
             <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-              Identifiants de démo préremplis ({demoHint.email}) — modifiable si besoin.
+              {t("login.demoHint", { email: demoHint.email })}
             </Typography>
           )}
           {error && (
@@ -83,7 +85,7 @@ export default function LoginForm({ onLoggedIn }: Props) {
             </Alert>
           )}
           <Button type="submit" variant="contained" fullWidth disabled={submitting} sx={{ mt: 3 }}>
-            {submitting ? "Connexion…" : "Se connecter"}
+            {submitting ? t("login.signingIn") : t("login.signIn")}
           </Button>
         </Box>
       </Paper>

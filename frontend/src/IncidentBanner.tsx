@@ -13,6 +13,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import "./IncidentBanner.css";
 import { fetchSystemHealth, SERVICE_LABELS, type ServiceCheck, type SystemHealth } from "./api/systemHealth";
+import { formatDateTime } from "./i18n/formatters";
+import { useI18n } from "./i18n/I18nContext";
+import { serviceLabel } from "./i18n/domain";
 
 // §checklist "Heartbeat toutes les 5 secondes" (B22) — même cadence côté
 // lecture, inutile d'interroger plus souvent que la donnée ne peut changer.
@@ -35,21 +38,16 @@ const RECOVERY_MESSAGE_DURATION_MS = 6000;
 // §checklist "Impact fonctionnel" — description honnête et spécifique par
 // service plutôt qu'un message générique ("un problème est survenu") qui
 // n'aiderait ni Zac ni un jury à comprendre ce qui est réellement affecté.
-const SERVICE_IMPACT: Record<string, string> = {
-  "backend-api": "L'application peut ne plus répondre du tout.",
-  postgres: "Aucune lecture ni écriture de données n'est possible.",
-  redis: "Le pipeline d'agents (propositions, décisions, ordres) est interrompu.",
-  "market-agent": "Plus aucune nouvelle donnée de marché n'est collectée.",
-  "strategy-agent": "Aucune nouvelle proposition de trading n'est générée.",
-  "risk-critic-agent": "Les propositions ne reçoivent plus de critique IA consultative.",
-  "execution-explanation-agent": "Les décisions de risque ne sont plus expliquées en langage naturel.",
-  "risk-engine": "Aucune proposition ne peut plus être validée — le trading est de facto à l'arrêt.",
-  "order-worker": "Aucun ordre ne peut plus être soumis à Alpaca.",
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  DEGRADED: "dégradé",
-  DISCONNECTED: "déconnecté",
+const SERVICE_IMPACT_KEYS: Record<string, string> = {
+  "backend-api": "incident.impact.backendApi",
+  postgres: "incident.impact.postgres",
+  redis: "incident.impact.redis",
+  "market-agent": "incident.impact.marketAgent",
+  "strategy-agent": "incident.impact.strategyAgent",
+  "risk-critic-agent": "incident.impact.riskCriticAgent",
+  "execution-explanation-agent": "incident.impact.executionExplanationAgent",
+  "risk-engine": "incident.impact.riskEngine",
+  "order-worker": "incident.impact.orderWorker",
 };
 
 function prefersReducedMotion(): boolean {
@@ -61,6 +59,7 @@ function isAffected(check: ServiceCheck): boolean {
 }
 
 export default function IncidentBanner() {
+  const { locale, t } = useI18n();
   const [health, setHealth] = useState<SystemHealth | null>(null);
   const [unreachable, setUnreachable] = useState(false);
   const [pulsing, setPulsing] = useState(false);
@@ -149,7 +148,7 @@ export default function IncidentBanner() {
         // fermeture manuelle est acceptable ici (contrairement au bandeau
         // d'incident actif) puisqu'aucune panne n'est plus en cours.
         <div className="recovery-banner" role="status">
-          <span>✓ Service rétabli — tous les systèmes sont de nouveau opérationnels.</span>
+          <span>{t("incident.recovered")}</span>
           <button
             className="recovery-banner__button"
             onClick={() => {
@@ -172,12 +171,12 @@ export default function IncidentBanner() {
           <div className="incident-banner__header">
             <span className="incident-banner__title">
               {unreachable
-                ? "⚠ Impossible de joindre le backend — l'application ne répond plus."
-                : `⚠ Incident système en cours (${affected.length} service${affected.length > 1 ? "s" : ""} affecté${affected.length > 1 ? "s" : ""})`}
+                ? t("incident.backendUnreachable")
+                : t(affected.length === 1 ? "incident.active.one" : "incident.active.other", { count: affected.length })}
             </span>
             <span className="incident-banner__actions">
               <button className="incident-banner__button" onClick={poll} type="button">
-                Réessayer le diagnostic
+                {t("incident.retryDiagnostics")}
               </button>
               {!unreachable && (
                 <button
@@ -185,7 +184,7 @@ export default function IncidentBanner() {
                   onClick={() => setDetailsOpen((v) => !v)}
                   type="button"
                 >
-                  {detailsOpen ? "Masquer" : "Voir"} les détails techniques
+                  {detailsOpen ? t("incident.hideTechnicalDetails") : t("incident.showTechnicalDetails")}
                 </button>
               )}
             </span>
@@ -194,12 +193,14 @@ export default function IncidentBanner() {
             <ul className="incident-banner__service-list">
               {affected.map(([name, check]) => (
                 <li key={name} className="incident-banner__service">
-                  <strong>{SERVICE_LABELS[name] ?? name}</strong> —{" "}
-                  {STATUS_LABELS[check.status] ?? check.status.toLowerCase()}
+                  <strong>{serviceLabel(t, name, SERVICE_LABELS[name] ?? name)}</strong> —{" "}
+                  {t(`status.${check.status}`)}
                   {check.last_heartbeat_at
-                    ? ` (dernier signal : ${new Date(check.last_heartbeat_at).toLocaleTimeString("fr-FR")})`
-                    : " (aucun signal reçu)"}
-                  . {SERVICE_IMPACT[name] ?? "Impact non documenté pour ce service."}
+                    ? t("incident.lastSignal", {
+                        time: formatDateTime(locale, check.last_heartbeat_at, { timeStyle: "short" }),
+                      })
+                    : t("incident.noSignal")}
+                  . {t(SERVICE_IMPACT_KEYS[name] ?? "incident.impact.unknown")}
                 </li>
               ))}
             </ul>

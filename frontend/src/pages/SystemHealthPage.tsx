@@ -16,6 +16,9 @@ import {
 } from "@mui/material";
 import { fetchSystemHealth, SERVICE_LABELS, type ServiceCheckStatus, type SystemHealth } from "../api/systemHealth";
 import { useLivePolling } from "../hooks/useLivePolling";
+import { formatDateTime } from "../i18n/formatters";
+import { useI18n } from "../i18n/I18nContext";
+import { serviceLabel } from "../i18n/domain";
 
 // §B25 "System Health" (menu gauche) — première page de ce shell à afficher
 // des données RÉELLES plutôt qu'un placeholder : `GET /api/system/health`
@@ -36,16 +39,17 @@ const STATUS_COLOR: Record<ServiceCheckStatus, "success" | "warning" | "error" |
 const POLL_INTERVAL_MS = 5000;
 
 export default function SystemHealthPage() {
+  const { locale, t } = useI18n();
   const { data, error, loading, refresh } = useLivePolling<SystemHealth>(fetchSystemHealth, POLL_INTERVAL_MS);
 
   return (
     <Box sx={{ maxWidth: 960 }}>
       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2 }}>
         <Typography variant="h4" component="h1">
-          System Health
+          {t("navigation.systemHealth")}
         </Typography>
         <Button startIcon={<RefreshIcon />} onClick={refresh} variant="outlined" size="small">
-          Rafraîchir
+          {t("common.refresh")}
         </Button>
       </Box>
 
@@ -59,7 +63,7 @@ export default function SystemHealthPage() {
 
       {error !== null && (
         <Alert severity="error" sx={{ mb: 2 }}>
-          Impossible de joindre le backend — l'application ne répond plus.
+          {t("incident.backendUnreachable")}
         </Alert>
       )}
 
@@ -68,20 +72,20 @@ export default function SystemHealthPage() {
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell>Service</TableCell>
-                <TableCell>Statut</TableCell>
-                <TableCell>Latence</TableCell>
-                <TableCell>Dernier heartbeat</TableCell>
-                <TableCell>Détail</TableCell>
+                <TableCell>{t("systemHealth.service")}</TableCell>
+                <TableCell>{t("common.status")}</TableCell>
+                <TableCell>{t("systemHealth.latency")}</TableCell>
+                <TableCell>{t("systemHealth.lastHeartbeat")}</TableCell>
+                <TableCell>{t("common.details")}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {Object.entries(data.checks).map(([name, check]) => (
                 <TableRow key={name}>
-                  <TableCell>{SERVICE_LABELS[name] ?? name}</TableCell>
+                  <TableCell>{serviceLabel(t, name, SERVICE_LABELS[name] ?? name)}</TableCell>
                   <TableCell>
                     <Chip
-                      label={check.status}
+                      label={t(`status.${check.status}`)}
                       color={STATUS_COLOR[check.status] ?? "default"}
                       size="small"
                       variant={check.status === "HEALTHY" ? "filled" : "outlined"}
@@ -89,7 +93,9 @@ export default function SystemHealthPage() {
                   </TableCell>
                   <TableCell>{check.latency_ms !== undefined ? `${check.latency_ms} ms` : "—"}</TableCell>
                   <TableCell>
-                    {check.last_heartbeat_at ? new Date(check.last_heartbeat_at).toLocaleTimeString("fr-FR") : "—"}
+                    {check.last_heartbeat_at
+                      ? formatDateTime(locale, check.last_heartbeat_at, { timeStyle: "short" })
+                      : "—"}
                   </TableCell>
                   <TableCell>{check.error ?? "—"}</TableCell>
                 </TableRow>

@@ -7,6 +7,7 @@ import { useThemeMode } from "../useThemeMode";
 import { PerformanceCardsRow, PortfolioStatCards } from "./overview/PortfolioOverview";
 import PositionsAllocation from "./overview/PositionsAllocation";
 import PortfolioCurveChart from "./market/PortfolioCurveChart";
+import { useI18n } from "../i18n/I18nContext";
 
 // §écran dédié Portfolio (28/08 — fermeture des liens de menu B12-B18/B22/
 // B25/B26/B31, voir AVANCEMENT.md) — jusqu'ici un `PlaceholderPage`
@@ -19,6 +20,7 @@ import PortfolioCurveChart from "./market/PortfolioCurveChart";
 // glissante utilisée par Overview/Market. Aucune nouvelle route backend,
 // aucun nouveau composant de rendu.
 export default function PortfolioPage() {
+  const { t } = useI18n();
   const { mode } = useThemeMode();
   const { data: summary, error: summaryError, loading: summaryLoading } = useLivePolling(fetchPortfolioSummary, 5000);
   const { data: history, error: historyError } = useLivePolling(() => fetchPortfolioHistory(200), 30000);
@@ -45,11 +47,10 @@ export default function PortfolioPage() {
     return (
       <Box>
         <Typography variant="h4" component="h1" sx={{ mb: 2 }}>
-          Portfolio
+          {t("navigation.portfolio")}
         </Typography>
         <Alert severity="info">
-          Pas encore de portefeuille pour ce contexte — cet écran se remplira dès le premier snapshot du Portfolio
-          Worker (B18).
+          {t("portfolio.noPortfolioYet")}
         </Alert>
       </Box>
     );
@@ -59,7 +60,7 @@ export default function PortfolioPage() {
     return (
       <Box>
         <Typography variant="h4" component="h1" sx={{ mb: 2 }}>
-          Portfolio
+          {t("navigation.portfolio")}
         </Typography>
         <Alert severity="error">{describeError(summaryError)}</Alert>
       </Box>
@@ -71,12 +72,12 @@ export default function PortfolioPage() {
   return (
     <Box>
       <Typography variant="h4" component="h1" sx={{ mb: 2 }}>
-        Portfolio
+        {t("navigation.portfolio")}
       </Typography>
 
       {summaryError !== null && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          {describeError(summaryError)} — dernières données connues affichées ci-dessous.
+          {t("common.showingLastKnownData", { error: describeError(summaryError) })}
         </Alert>
       )}
 
@@ -89,7 +90,7 @@ export default function PortfolioPage() {
         <Grid size={12}>
           <Paper variant="outlined" sx={{ p: 2 }}>
             <Typography variant="h6" component="h2" sx={{ mb: 1 }}>
-              Historique du portefeuille
+              {t("portfolio.history")}
             </Typography>
             {historyError && !(historyError instanceof ApiError && historyError.code === "NOT_FOUND") ? (
               <Alert severity="warning">{describeError(historyError)}</Alert>

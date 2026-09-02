@@ -5,6 +5,7 @@ import KillSwitchCard from "../components/killSwitch/KillSwitchCard";
 import AiGovernanceCard from "../components/aiGovernance/AiGovernanceCard";
 import AssetCatalogCard from "../components/assets/AssetCatalogCard";
 import ProfileCard from "../components/profile/ProfileCard";
+import { useI18n } from "../i18n/I18nContext";
 
 // §B25 "Settings" (menu gauche + header) — section Compte réellement
 // fonctionnelle (utilisateur courant, déconnexion, données réelles B05) ;
@@ -24,19 +25,20 @@ import ProfileCard from "../components/profile/ProfileCard";
 // après le catalogue des actifs, "Profil utilisateur étendu" retiré du
 // tableau `upcoming`.
 export default function SettingsPage() {
+  const { t } = useI18n();
   const { user, onLogout } = useOutletContext<AppShellOutletContext>();
 
-  const upcoming = [{ label: "Notifications Telegram", brick: "B21" }];
+  const upcoming = [{ label: t("settings.telegramNotifications"), brick: "B21" }];
 
   return (
     <Box sx={{ maxWidth: 720 }}>
       <Typography variant="h4" component="h1" sx={{ mb: 2 }}>
-        Settings
+        {t("navigation.settings")}
       </Typography>
 
       <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
         <Typography variant="h6" component="h2" sx={{ mb: 1 }}>
-          Compte
+          {t("settings.account")}
         </Typography>
         <Typography>
           <strong>{user.display_name}</strong>
@@ -45,7 +47,7 @@ export default function SettingsPage() {
           {user.email}
         </Typography>
         <Button variant="outlined" color="inherit" onClick={onLogout}>
-          Se déconnecter
+          {t("header.signOut")}
         </Button>
       </Paper>
 
@@ -59,13 +61,13 @@ export default function SettingsPage() {
 
       <Paper variant="outlined" sx={{ p: 3 }}>
         <Typography variant="h6" component="h2" sx={{ mb: 1 }}>
-          À venir
+          {t("settings.upcoming")}
         </Typography>
         <List dense disablePadding>
           {upcoming.map((item, i) => (
             <Box key={item.label}>
               <ListItem disableGutters>
-                <ListItemText primary={item.label} secondary={`Arrive avec ${item.brick}`} />
+                <ListItemText primary={item.label} secondary={t("settings.availableWith", { brick: item.brick })} />
               </ListItem>
               {i < upcoming.length - 1 && <Divider component="li" />}
             </Box>

@@ -9,6 +9,7 @@ import { useAgentRoom } from "../../useAgentRoom";
 import AskZikoTab from "./AskZikoTab";
 import DecisionDetailsTab from "./DecisionDetailsTab";
 import LiveDebateTab from "./LiveDebateTab";
+import { useI18n } from "../../i18n/I18nContext";
 
 // §B28 checklist "trois modes... boutons toujours accessibles" — le
 // contenu (en-tête + boutons de mode + les 3 onglets) est IDENTIQUE quel
@@ -16,10 +17,10 @@ import LiveDebateTab from "./LiveDebateTab";
 // taille/position (voir `AppShell.tsx`) — c'est ce composant qui rend les 3
 // modes réellement interchangeables plutôt que 3 UIs différentes.
 
-const MODE_META: Record<AgentRoomMode, { icon: ReactNode; label: string }> = {
-  compact: { icon: <ChatBubbleOutlineIcon fontSize="small" />, label: "Compact" },
-  docked: { icon: <ViewSidebarIcon fontSize="small" />, label: "Ancré" },
-  fullscreen: { icon: <OpenInFullIcon fontSize="small" />, label: "Plein écran" },
+const MODE_META: Record<AgentRoomMode, { icon: ReactNode; labelKey: string }> = {
+  compact: { icon: <ChatBubbleOutlineIcon fontSize="small" />, labelKey: "agentRoom.mode.compact" },
+  docked: { icon: <ViewSidebarIcon fontSize="small" />, labelKey: "agentRoom.mode.docked" },
+  fullscreen: { icon: <OpenInFullIcon fontSize="small" />, labelKey: "agentRoom.mode.fullscreen" },
 };
 
 const MODE_ORDER: AgentRoomMode[] = ["compact", "docked", "fullscreen"];
@@ -34,6 +35,7 @@ type Props = {
 };
 
 export default function AgentRoomPanel({ dense = false, showModeSwitch = true }: Props) {
+  const { t } = useI18n();
   const { mode, setMode, activeTab, setActiveTab, closeRoom } = useAgentRoom();
 
   return (
@@ -44,14 +46,14 @@ export default function AgentRoomPanel({ dense = false, showModeSwitch = true }:
         </Typography>
         {showModeSwitch &&
           MODE_ORDER.map((m) => (
-            <Tooltip key={m} title={MODE_META[m].label}>
-              <IconButton size="small" color={mode === m ? "primary" : "default"} onClick={() => setMode(m)} aria-label={MODE_META[m].label}>
+            <Tooltip key={m} title={t(MODE_META[m].labelKey)}>
+              <IconButton size="small" color={mode === m ? "primary" : "default"} onClick={() => setMode(m)} aria-label={t(MODE_META[m].labelKey)}>
                 {MODE_META[m].icon}
               </IconButton>
             </Tooltip>
           ))}
-        <Tooltip title="Fermer">
-          <IconButton size="small" onClick={closeRoom} aria-label="Fermer l'Agent Room">
+        <Tooltip title={t("common.close")}>
+          <IconButton size="small" onClick={closeRoom} aria-label={t("agentRoom.close")}>
             <CloseIcon fontSize="small" />
           </IconButton>
         </Tooltip>
@@ -63,9 +65,9 @@ export default function AgentRoomPanel({ dense = false, showModeSwitch = true }:
         variant="fullWidth"
         sx={{ minHeight: dense ? 32 : 48 }}
       >
-        <Tab value="live" label="Live Debate" sx={{ minHeight: dense ? 32 : 48, fontSize: dense ? "0.65rem" : undefined }} />
-        <Tab value="ask" label="Ask Ziko AI" sx={{ minHeight: dense ? 32 : 48, fontSize: dense ? "0.65rem" : undefined }} />
-        <Tab value="decision" label="Décision" sx={{ minHeight: dense ? 32 : 48, fontSize: dense ? "0.65rem" : undefined }} />
+        <Tab value="live" label={t("agentRoom.liveDebate")} sx={{ minHeight: dense ? 32 : 48, fontSize: dense ? "0.65rem" : undefined }} />
+        <Tab value="ask" label={t("agentRoom.askZiko")} sx={{ minHeight: dense ? 32 : 48, fontSize: dense ? "0.65rem" : undefined }} />
+        <Tab value="decision" label={t("agentRoom.decisionDetails")} sx={{ minHeight: dense ? 32 : 48, fontSize: dense ? "0.65rem" : undefined }} />
       </Tabs>
 
       <Box sx={{ flex: 1, minHeight: 0 }}>

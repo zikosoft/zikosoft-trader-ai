@@ -6,6 +6,8 @@ import { fetchAlerts, type AlertSeverity } from "../../api/alerts";
 import { fetchBars, fetchSymbols, type BarsResponse } from "../../api/market";
 import { useThemeMode } from "../../useThemeMode";
 import SparklineChart from "../market/SparklineChart";
+import { useI18n } from "../../i18n/I18nContext";
+import { localizeValue } from "../../i18n/domain";
 
 // §B26 "Santé système" + "Kill switch" — même poll (`/api/system/health`,
 // B22/B23/B25) réutilisé pour les deux : le flag kill switch voyage déjà
@@ -31,6 +33,7 @@ const STATUS_COLOR: Record<string, "success" | "warning" | "error" | "default"> 
 };
 
 export function SystemHealthAndKillSwitchCard() {
+  const { t } = useI18n();
   const { data, loading } = useLivePolling(fetchSystemHealth, 5000);
 
   if (loading && !data) return <Skeleton variant="rectangular" height={140} sx={{ borderRadius: 1 }} />;
@@ -39,13 +42,13 @@ export function SystemHealthAndKillSwitchCard() {
     <Paper variant="outlined" sx={{ p: 2, height: "100%" }}>
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.5 }}>
         <Typography variant="h6" component="h2">
-          Santé système
+          {t("systemHealth.title")}
         </Typography>
         <Chip
           component={RouterLink}
           to="/system-health"
           clickable
-          label={data ? data.status : "…"}
+          label={data ? localizeValue(t, `status.${data.status.toUpperCase()}`, data.status) : "…"}
           size="small"
           color={data ? (STATUS_COLOR[data.status] ?? "default") : "default"}
         />
@@ -58,18 +61,18 @@ export function SystemHealthAndKillSwitchCard() {
           "Santé système" ci-dessus (posé en B26, inchangé). */}
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <Typography variant="body2" color="text.secondary">
-          Kill switch trading
+          {t("killSwitch.shortTitle")}
         </Typography>
         {data?.trading_kill_switch_engaged === null || data?.trading_kill_switch_engaged === undefined ? (
-          <Chip component={RouterLink} to="/settings" clickable label="État inconnu" size="small" />
+          <Chip component={RouterLink} to="/settings" clickable label={t("common.unknown")} size="small" />
         ) : data.trading_kill_switch_engaged ? (
-          <Chip component={RouterLink} to="/settings" clickable label="Trading suspendu" size="small" color="error" />
+          <Chip component={RouterLink} to="/settings" clickable label={t("killSwitch.tradingSuspended")} size="small" color="error" />
         ) : (
           <Chip
             component={RouterLink}
             to="/settings"
             clickable
-            label="Trading actif"
+            label={t("killSwitch.tradingActive")}
             size="small"
             color="success"
             variant="outlined"
@@ -87,25 +90,26 @@ function alertSeverityColor(severity: AlertSeverity): "error" | "warning" | "inf
 }
 
 export function AlertsWidgetCard() {
+  const { t } = useI18n();
   const { data, loading, error } = useLivePolling(() => fetchAlerts({ limit: 3 }), 10000);
 
   return (
     <Paper variant="outlined" sx={{ p: 2, height: "100%" }}>
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
         <Typography variant="h6" component="h2">
-          Alertes
+          {t("navigation.alerts")}
         </Typography>
-        <Chip component={RouterLink} to="/alerts" clickable label="Voir tout" size="small" variant="outlined" />
+        <Chip component={RouterLink} to="/alerts" clickable label={t("common.viewAll")} size="small" variant="outlined" />
       </Box>
       {loading && !data ? (
         <Skeleton variant="rectangular" height={72} sx={{ borderRadius: 1 }} />
       ) : !data && error ? (
         <Alert severity="info" sx={{ "& .MuiAlert-message": { fontSize: "0.875rem" } }}>
-          Aucun contexte d'exécution actif.
+          {t("context.activeRequiredShort")}
         </Alert>
       ) : !data || data.alerts.length === 0 ? (
         <Typography color="text.secondary" sx={{ fontSize: "0.875rem" }}>
-          Aucune alerte pour ce contexte.
+          {t("alerts.empty")}
         </Typography>
       ) : (
         <List dense disablePadding>
@@ -114,7 +118,7 @@ export function AlertsWidgetCard() {
               <ListItemText
                 primary={
                   <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                    <Chip label={a.severity} size="small" color={alertSeverityColor(a.severity)} />
+                    <Chip label={localizeValue(t, `alertSeverity.${a.severity}`, a.severity)} size="small" color={alertSeverityColor(a.severity)} />
                     <Typography
                       component="span"
                       variant="body2"
@@ -140,6 +144,7 @@ async function fetchFirstSymbolBars(): Promise<BarsResponse | null> {
 }
 
 export function MarketWidgetCard() {
+  const { t } = useI18n();
   const { data, loading } = useLivePolling(fetchFirstSymbolBars, 15000);
   const { mode } = useThemeMode();
 
@@ -147,15 +152,15 @@ export function MarketWidgetCard() {
     <Paper variant="outlined" sx={{ p: 2, height: "100%" }}>
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
         <Typography variant="h6" component="h2">
-          Market
+          {t("navigation.market")}
         </Typography>
-        <Chip component={RouterLink} to="/market" clickable label="Voir tout" size="small" variant="outlined" />
+        <Chip component={RouterLink} to="/market" clickable label={t("common.viewAll")} size="small" variant="outlined" />
       </Box>
       {loading && !data ? (
         <Skeleton variant="rectangular" height={72} sx={{ borderRadius: 1 }} />
       ) : !data || data.bars.length === 0 ? (
         <Typography color="text.secondary">
-          Aucune donnée de marché disponible pour l'instant (le Market Agent n'a pas encore collecté de bougies).
+          {t("market.noData")}
         </Typography>
       ) : (
         <Box>

@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 import { Autocomplete, Chip, CircularProgress, TextField } from "@mui/material";
 import { searchAssets, type AssetSearchItem } from "../../api/assets";
+import { useI18n } from "../../i18n/I18nContext";
 
 const DEBOUNCE_MS = 300;
 
@@ -37,6 +38,7 @@ export default function SymbolAutocomplete({
   onChange: (symbols: string[]) => void;
   maxSymbols?: number;
 }) {
+  const { t } = useI18n();
   const [inputValue, setInputValue] = useState("");
   const [options, setOptions] = useState<AssetSearchItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -117,12 +119,16 @@ export default function SymbolAutocomplete({
       renderInput={(params) => (
         <TextField
           {...params}
-          label="Symboles"
-          placeholder={atLimit ? `Maximum ${maxSymbols} atteint` : "Rechercher un symbole…"}
+          label={t("symbolAutocomplete.label")}
+          placeholder={
+            atLimit
+              ? t("symbolAutocomplete.maximumReached", { count: maxSymbols ?? 0 })
+              : t("symbolAutocomplete.search")
+          }
           helperText={
             maxSymbols !== undefined
-              ? `${value.length}/${maxSymbols} symbole(s) — au moins un requis`
-              : "Au moins un symbole requis"
+              ? t("symbolAutocomplete.progress", { selected: value.length, maximum: maxSymbols })
+              : t("symbolAutocomplete.required")
           }
           slotProps={{
             ...params.slotProps,

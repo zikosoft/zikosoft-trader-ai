@@ -11,6 +11,9 @@
 // voir vite.config.ts) — le cookie de session posé par le backend (B05)
 // continue de voyager automatiquement, aucune manipulation manuelle requise.
 
+import { readStoredLocale } from "../i18n/config";
+import { hasTranslation, translateCurrentLocale } from "../i18n/messages";
+
 export type ApiErrorBody = {
   error: {
     code: string;
@@ -42,16 +45,16 @@ export async function parseOrThrow<T>(response: Response): Promise<T> {
   return (await response.json()) as T;
 }
 
-// §"Impossible de contacter le serveur" — message affiché partout dans le
-// frontend (LoginForm, ContextChooser, Onboarding, ContextSwitcher…) quand
-// une erreur n'est PAS une `ApiError` (le backend a répondu avec un format
-// d'erreur reconnu) mais un échec réseau brut (backend injoignable, DNS,
-// CORS…). Centralisé ici pour que tout appelant produise le même message
-// sans le retaper.
-export const NETWORK_ERROR_MESSAGE = "Impossible de contacter le serveur.";
-
 export function describeError(err: unknown): string {
-  return err instanceof ApiError ? err.message : NETWORK_ERROR_MESSAGE;
+  if (err instanceof ApiError) {
+    const key = `errors.${err.code}`;
+    // The backend contract exposes a stable `error.code`. Translate that
+    // code in the frontend, but preserve an unknown backend message while a
+    // future code is being added to the locale files.
+    return hasTranslation(readStoredLocale(), key) ? translateCurrentLocale(key) : err.message;
+  }
+
+  return translateCurrentLocale("errors.network");
 }
 
 // GET simple — la majorité des lectures de l'app.

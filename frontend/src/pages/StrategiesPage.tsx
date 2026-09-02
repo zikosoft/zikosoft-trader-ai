@@ -52,6 +52,8 @@ import {
   type UiFieldSchema,
 } from "../api/strategies";
 import { fetchUserProfile, type UserProfile } from "../api/userProfile";
+import { useI18n } from "../i18n/I18nContext";
+import { localizeValue, profileLabel, strategyDescription, strategyEnumLabel, strategyLabel, strategyParameterLabel } from "../i18n/domain";
 
 // §écran dédié Strategies (28/08 — fermeture des liens de menu B12/B25/B26,
 // voir AVANCEMENT.md) — remplace le `PlaceholderPage` "Backend prêt depuis
@@ -63,15 +65,6 @@ import { fetchUserProfile, type UserProfile } from "../api/userProfile";
 // stratégies n'a de formulaire codé en dur) plus un tableau de gestion des
 // instances (activer/mettre en pause/arrêter/cloner/supprimer), sans
 // aucune nouvelle route backend.
-
-const STATUS_LABEL: Record<StrategyInstanceStatus, string> = {
-  DRAFT: "Brouillon",
-  READY: "Prête",
-  ACTIVE: "Active",
-  PAUSED: "En pause",
-  STOPPED: "Arrêtée",
-  ERROR: "Erreur",
-};
 
 const STATUS_COLOR: Record<StrategyInstanceStatus, "success" | "warning" | "default" | "error"> = {
   DRAFT: "default",
@@ -111,6 +104,7 @@ function renderField(
   definition: StrategyDefinition,
   values: Record<string, unknown>,
   setField: (key: string, value: unknown) => void,
+  t: ReturnType<typeof useI18n>["t"],
 ) {
   const propSchema = definition.parameter_schema.properties[key];
   const value = values[key];
@@ -118,10 +112,10 @@ function renderField(
   if (field.widget === "select") {
     return (
       <Grid key={key} size={{ xs: 12, sm: 6 }}>
-        <TextField select fullWidth label={field.label} value={(value as string) ?? ""} onChange={(e) => setField(key, e.target.value)}>
+        <TextField select fullWidth label={strategyParameterLabel(t, key, field.label)} value={(value as string) ?? ""} onChange={(e) => setField(key, e.target.value)}>
           {(propSchema?.enum ?? []).map((opt) => (
             <MenuItem key={opt} value={opt}>
-              {opt}
+              {strategyEnumLabel(t, opt)}
             </MenuItem>
           ))}
         </TextField>
@@ -134,7 +128,7 @@ function renderField(
       <Grid key={key} size={{ xs: 12, sm: 6 }}>
         <FormControlLabel
           control={<Checkbox checked={Boolean(value)} onChange={(e) => setField(key, e.target.checked)} />}
-          label={field.label}
+          label={strategyParameterLabel(t, key, field.label)}
         />
       </Grid>
     );
@@ -146,7 +140,7 @@ function renderField(
       <TextField
         type="number"
         fullWidth
-        label={field.label}
+        label={strategyParameterLabel(t, key, field.label)}
         value={value === undefined || value === null ? "" : String(value)}
         slotProps={{
           htmlInput: {
@@ -186,6 +180,7 @@ function ParameterForm({
   onChange: (next: Record<string, unknown>) => void;
   defaultAdvancedOpen: boolean;
 }) {
+  const { t } = useI18n();
   const [advancedOpen, setAdvancedOpen] = useState(defaultAdvancedOpen);
 
   useEffect(() => {
@@ -203,7 +198,7 @@ function ParameterForm({
   return (
     <Box>
       <Grid container spacing={2}>
-        {basicFields.map(([key, field]) => renderField(key, field, definition, values, setField))}
+        {basicFields.map(([key, field]) => renderField(key, field, definition, values, setField, t))}
       </Grid>
 
       {advancedFields.length > 0 && (
@@ -214,11 +209,11 @@ function ParameterForm({
             startIcon={advancedOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
             sx={{ mb: 1 }}
           >
-            Paramètres avancés
+            {t("strategy.advancedParameters")}
           </Button>
           <Collapse in={advancedOpen}>
             <Grid container spacing={2}>
-              {advancedFields.map(([key, field]) => renderField(key, field, definition, values, setField))}
+              {advancedFields.map(([key, field]) => renderField(key, field, definition, values, setField, t))}
             </Grid>
           </Collapse>
         </Box>
@@ -250,6 +245,7 @@ function CreateStrategyDialog({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const { t } = useI18n();
   const [typeCode, setTypeCode] = useState("");
   const [name, setName] = useState("");
   const [symbols, setSymbols] = useState<string[]>([]);
@@ -309,36 +305,36 @@ function CreateStrategyDialog({
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>Créer une stratégie</DialogTitle>
+      <DialogTitle>{t("strategy.createTitle")}</DialogTitle>
       <DialogContent dividers>
         <Box sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 0.5 }}>
           <TextField
             select
             fullWidth
-            label="Type de stratégie"
+            label={t("strategy.type")}
             value={typeCode}
             onChange={(e) => setTypeCode(e.target.value)}
           >
             {definitions.map((d) => (
               <MenuItem key={d.type_code} value={d.type_code}>
-                {d.name}
+                {strategyLabel(t, d.type_code, d.name)}
               </MenuItem>
             ))}
           </TextField>
 
           {definition && (
             <Typography variant="body2" color="text.secondary">
-              {definition.description}
+              {strategyDescription(t, definition.type_code, definition.description)}
               {definition.required_capabilities.includes("ai") && (
                 <>
                   {" "}
-                  <Chip label="Consomme l'IA (Claude)" size="small" color="info" variant="outlined" sx={{ ml: 0.5 }} />
+                  <Chip label={t("strategy.aiRequired")} size="small" color="info" variant="outlined" sx={{ ml: 0.5 }} />
                 </>
               )}
             </Typography>
           )}
 
-          <TextField fullWidth label="Nom" value={name} onChange={(e) => setName(e.target.value)} />
+          <TextField fullWidth label={t("common.name")} value={name} onChange={(e) => setName(e.target.value)} />
           <SymbolAutocomplete value={symbols} onChange={setSymbols} maxSymbols={userProfile?.limits.max_symbols} />
 
           {definition && (
@@ -350,8 +346,8 @@ function CreateStrategyDialog({
                 onChange={(_e, v) => v && setProfile(v)}
                 sx={{ alignSelf: "flex-start" }}
               >
-                <ToggleButton value="beginner">Profil débutant</ToggleButton>
-                <ToggleButton value="advanced">Profil avancé</ToggleButton>
+                <ToggleButton value="beginner">{profileLabel(t, "novice")}</ToggleButton>
+                <ToggleButton value="advanced">{profileLabel(t, "expert")}</ToggleButton>
               </ToggleButtonGroup>
 
               <ParameterForm
@@ -374,13 +370,13 @@ function CreateStrategyDialog({
         </Box>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Annuler</Button>
+        <Button onClick={onClose}>{t("common.cancel")}</Button>
         <Button
           variant="contained"
           disabled={submitting || !definition || !name.trim() || symbols.length === 0}
           onClick={handleSubmit}
         >
-          {submitting ? "Création…" : "Créer"}
+          {submitting ? t("strategy.creating") : t("common.create")}
         </Button>
       </DialogActions>
     </Dialog>
@@ -388,6 +384,7 @@ function CreateStrategyDialog({
 }
 
 export default function StrategiesPage() {
+  const { t } = useI18n();
   const { data: instances, error, loading, refresh } = useLivePolling(fetchStrategyInstances, 5000);
   const [definitions, setDefinitions] = useState<StrategyDefinition[] | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -449,9 +446,9 @@ export default function StrategiesPage() {
     return (
       <Box>
         <Typography variant="h4" component="h1" sx={{ mb: 2 }}>
-          Strategies
+          {t("navigation.strategies")}
         </Typography>
-        <Alert severity="info">Aucun contexte d'exécution actif — choisis d'abord un contexte (Paper ou Replay).</Alert>
+        <Alert severity="info">{t("strategy.noContext")}</Alert>
       </Box>
     );
   }
@@ -460,7 +457,7 @@ export default function StrategiesPage() {
     return (
       <Box>
         <Typography variant="h4" component="h1" sx={{ mb: 2 }}>
-          Strategies
+          {t("navigation.strategies")}
         </Typography>
         <Alert severity="error">{describeError(error)}</Alert>
       </Box>
@@ -473,10 +470,10 @@ export default function StrategiesPage() {
     <Box>
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
         <Typography variant="h4" component="h1">
-          Strategies
+          {t("navigation.strategies")}
         </Typography>
         <Button variant="contained" disabled={!definitions || definitions.length === 0} onClick={() => setCreateOpen(true)}>
-          Créer une stratégie
+          {t("strategy.create")}
         </Button>
       </Box>
 
@@ -487,25 +484,25 @@ export default function StrategiesPage() {
       )}
       {error !== null && (
         <Alert severity="warning" sx={{ mb: 2 }}>
-          {describeError(error)} — dernières données connues affichées ci-dessous.
+          {describeError(error)} — {t("common.lastKnownData")}
         </Alert>
       )}
 
       <Paper variant="outlined" sx={{ p: 2 }}>
         {list.length === 0 ? (
           <Typography color="text.secondary">
-            Aucune stratégie pour le moment — crée-en une pour ce contexte d'exécution.
+            {t("strategy.empty")}
           </Typography>
         ) : (
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell>Nom</TableCell>
-                <TableCell>Type</TableCell>
-                <TableCell>Symboles</TableCell>
-                <TableCell>Statut</TableCell>
-                <TableCell>Dernier signal</TableCell>
-                <TableCell align="right">Actions</TableCell>
+                <TableCell>{t("common.name")}</TableCell>
+                <TableCell>{t("strategy.type")}</TableCell>
+                <TableCell>{t("strategy.symbols")}</TableCell>
+                <TableCell>{t("common.status")}</TableCell>
+                <TableCell>{t("strategy.latestSignal")}</TableCell>
+                <TableCell align="right">{t("common.actions")}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -523,14 +520,14 @@ export default function StrategiesPage() {
                 return (
                   <TableRow key={instance.id}>
                     <TableCell>{instance.name}</TableCell>
-                    <TableCell>{instance.type_code}</TableCell>
+                    <TableCell>{strategyLabel(t, instance.type_code, instance.type_code)}</TableCell>
                     <TableCell>{instance.symbols.join(", ")}</TableCell>
                     <TableCell>
-                      <Chip label={STATUS_LABEL[instance.status]} size="small" color={STATUS_COLOR[instance.status]} variant="outlined" />
+                      <Chip label={localizeValue(t, `status.${instance.status}`, instance.status)} size="small" color={STATUS_COLOR[instance.status]} variant="outlined" />
                     </TableCell>
                     <TableCell>{instance.latest_signal ?? "—"}</TableCell>
                     <TableCell align="right">
-                      <Tooltip title="Activer">
+                      <Tooltip title={t("strategy.activate")}>
                         <span>
                           <IconButton
                             size="small"
@@ -541,7 +538,7 @@ export default function StrategiesPage() {
                           </IconButton>
                         </span>
                       </Tooltip>
-                      <Tooltip title="Mettre en pause">
+                      <Tooltip title={t("strategy.pause")}>
                         <span>
                           <IconButton
                             size="small"
@@ -552,7 +549,7 @@ export default function StrategiesPage() {
                           </IconButton>
                         </span>
                       </Tooltip>
-                      <Tooltip title="Arrêter">
+                      <Tooltip title={t("strategy.stop")}>
                         <span>
                           <IconButton
                             size="small"
@@ -563,7 +560,7 @@ export default function StrategiesPage() {
                           </IconButton>
                         </span>
                       </Tooltip>
-                      <Tooltip title="Cloner">
+                      <Tooltip title={t("strategy.clone")}>
                         <span>
                           <IconButton
                             size="small"
@@ -574,7 +571,7 @@ export default function StrategiesPage() {
                           </IconButton>
                         </span>
                       </Tooltip>
-                      <Tooltip title="Supprimer">
+                      <Tooltip title={t("common.delete")}>
                         <span>
                           <IconButton
                             size="small"
@@ -603,16 +600,16 @@ export default function StrategiesPage() {
       />
 
       <Dialog open={deleteTarget !== null} onClose={() => setDeleteTarget(null)}>
-        <DialogTitle>Supprimer « {deleteTarget?.name} » ?</DialogTitle>
+        <DialogTitle>{t("strategy.deleteTitle", { name: deleteTarget?.name ?? "" })}</DialogTitle>
         <DialogContent>
           <Typography color="text.secondary">
-            Cette action est irréversible. La stratégie doit être arrêtée au préalable si elle est active.
+            {t("strategy.deleteBody")}
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteTarget(null)}>Annuler</Button>
+          <Button onClick={() => setDeleteTarget(null)}>{t("common.cancel")}</Button>
           <Button color="error" variant="contained" disabled={pendingId === deleteTarget?.id} onClick={handleDelete}>
-            Supprimer
+            {t("common.delete")}
           </Button>
         </DialogActions>
       </Dialog>

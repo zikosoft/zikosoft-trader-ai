@@ -22,12 +22,14 @@ import {
   Badge,
   Box,
   Chip,
+  Divider,
   Drawer,
   IconButton,
   List,
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  ListSubheader,
   Menu,
   MenuItem,
   Toolbar,
@@ -48,6 +50,8 @@ import ContextSwitcher from "./ContextSwitcher";
 import { useAgentRoom } from "./useAgentRoom";
 import { useLivePolling } from "./hooks/useLivePolling";
 import { useThemeMode } from "./useThemeMode";
+import { SUPPORTED_LOCALES } from "./i18n/config";
+import { useI18n } from "./i18n/I18nContext";
 
 // §B25 — coquille applicative complète (menu gauche + header + zone de
 // contenu routée). Construit UNE FOIS que l'utilisateur est connecté, a un
@@ -67,19 +71,19 @@ export type AppShellOutletContext = {
   onContextChanged: (state: ContextListResponse) => void;
 };
 
-type NavItem = { label: string; path: string; icon: React.ReactNode };
+type NavItem = { labelKey: string; path: string; icon: React.ReactNode };
 
 const NAV_ITEMS: NavItem[] = [
-  { label: "Overview", path: "/", icon: <DashboardIcon /> },
-  { label: "Strategies", path: "/strategies", icon: <RuleIcon /> },
-  { label: "AI Agent Room", path: "/agent-room", icon: <ForumIcon /> },
-  { label: "Orders", path: "/orders", icon: <ReceiptLongIcon /> },
-  { label: "Portfolio", path: "/portfolio", icon: <AccountBalanceWalletIcon /> },
-  { label: "Market", path: "/market", icon: <ShowChartIcon /> },
-  { label: "Replay", path: "/replay", icon: <ReplayIcon /> },
-  { label: "Alerts", path: "/alerts", icon: <NotificationsIcon /> },
-  { label: "Settings", path: "/settings", icon: <SettingsIcon /> },
-  { label: "System Health", path: "/system-health", icon: <HealthAndSafetyIcon /> },
+  { labelKey: "navigation.overview", path: "/", icon: <DashboardIcon /> },
+  { labelKey: "navigation.strategies", path: "/strategies", icon: <RuleIcon /> },
+  { labelKey: "navigation.agentRoom", path: "/agent-room", icon: <ForumIcon /> },
+  { labelKey: "navigation.orders", path: "/orders", icon: <ReceiptLongIcon /> },
+  { labelKey: "navigation.portfolio", path: "/portfolio", icon: <AccountBalanceWalletIcon /> },
+  { labelKey: "navigation.market", path: "/market", icon: <ShowChartIcon /> },
+  { labelKey: "navigation.replay", path: "/replay", icon: <ReplayIcon /> },
+  { labelKey: "navigation.alerts", path: "/alerts", icon: <NotificationsIcon /> },
+  { labelKey: "navigation.settings", path: "/settings", icon: <SettingsIcon /> },
+  { labelKey: "navigation.systemHealth", path: "/system-health", icon: <HealthAndSafetyIcon /> },
 ];
 
 const DRAWER_WIDTH_EXPANDED = 240;
@@ -114,6 +118,7 @@ export default function AppShell(props: Props) {
 }
 
 function AppShellInner({ user, contextState, onContextChanged, onLogout }: Props) {
+  const { locale, setLocale, t } = useI18n();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const location = useLocation();
@@ -257,6 +262,7 @@ function AppShellInner({ user, contextState, onContextChanged, onLogout }: Props
       <List sx={{ flex: 1 }}>
         {NAV_ITEMS.map((item) => {
           const active = location.pathname === item.path;
+          const label = t(item.labelKey);
           const button = (
             <ListItemButton
               key={item.path}
@@ -269,11 +275,11 @@ function AppShellInner({ user, contextState, onContextChanged, onLogout }: Props
               <ListItemIcon sx={{ minWidth: collapsed && !isMobile ? 0 : 40, justifyContent: "center" }}>
                 {item.icon}
               </ListItemIcon>
-              {(!collapsed || isMobile) && <ListItemText primary={item.label} />}
+              {(!collapsed || isMobile) && <ListItemText primary={label} />}
             </ListItemButton>
           );
           return collapsed && !isMobile ? (
-            <Tooltip key={item.path} title={item.label} placement="right">
+            <Tooltip key={item.path} title={label} placement="right">
               {button}
             </Tooltip>
           ) : (
@@ -283,7 +289,7 @@ function AppShellInner({ user, contextState, onContextChanged, onLogout }: Props
       </List>
       {!isMobile && (
         <Box sx={{ p: 1, display: "flex", justifyContent: "center", borderTop: 1, borderColor: "divider" }}>
-          <IconButton onClick={() => setCollapsedPersisted(!collapsed)} size="small" aria-label="Réduire le menu">
+          <IconButton onClick={() => setCollapsedPersisted(!collapsed)} size="small" aria-label={t("header.collapseMenu")}>
             {collapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
           </IconButton>
         </Box>
@@ -296,7 +302,7 @@ function AppShellInner({ user, contextState, onContextChanged, onLogout }: Props
       <AppBar ref={appBarRef} position="fixed" sx={{ top: `${bannerHeight}px`, zIndex: theme.zIndex.drawer + 1 }}>
         <Toolbar sx={{ gap: 2 }}>
           {isMobile && (
-            <IconButton color="inherit" edge="start" onClick={() => setMobileOpen(true)} aria-label="Ouvrir le menu">
+            <IconButton color="inherit" edge="start" onClick={() => setMobileOpen(true)} aria-label={t("header.openMenu")}>
               <MenuIcon />
             </IconButton>
           )}
@@ -327,7 +333,7 @@ function AppShellInner({ user, contextState, onContextChanged, onLogout }: Props
             )}
 
             <Tooltip title={user.display_name}>
-              <IconButton onClick={(e) => setUserMenuAnchor(e.currentTarget)} aria-label="Menu utilisateur">
+              <IconButton onClick={(e) => setUserMenuAnchor(e.currentTarget)} aria-label={t("header.userMenu")}>
                 <Avatar sx={{ width: 32, height: 32, fontSize: "0.9rem" }}>
                   {user.display_name.slice(0, 1).toUpperCase()}
                 </Avatar>
@@ -342,8 +348,28 @@ function AppShellInner({ user, contextState, onContextChanged, onLogout }: Props
                 <ListItemIcon>
                   <SettingsIcon fontSize="small" />
                 </ListItemIcon>
-                Settings
+                {t("navigation.settings")}
               </MenuItem>
+              <Divider />
+              <ListSubheader disableSticky sx={{ lineHeight: "32px", fontSize: "0.75rem", fontWeight: 700 }}>
+                {t("language.menuTitle")}
+              </ListSubheader>
+              {SUPPORTED_LOCALES.map((language) => (
+                <MenuItem
+                  key={language.code}
+                  selected={locale === language.code}
+                  onClick={() => {
+                    setLocale(language.code);
+                    setUserMenuAnchor(null);
+                  }}
+                >
+                  <ListItemIcon sx={{ minWidth: 32 }}>
+                    <span role="img" aria-label={t(`language.${language.code}`)}>{language.flag}</span>
+                  </ListItemIcon>
+                  <ListItemText primary={language.nativeName} />
+                </MenuItem>
+              ))}
+              <Divider />
               <MenuItem
                 onClick={() => {
                   setUserMenuAnchor(null);
@@ -353,7 +379,7 @@ function AppShellInner({ user, contextState, onContextChanged, onLogout }: Props
                 <ListItemIcon>
                   <LogoutIcon fontSize="small" />
                 </ListItemIcon>
-                Se déconnecter
+                {t("header.signOut")}
               </MenuItem>
             </Menu>
           </Box>
@@ -568,23 +594,24 @@ function HeaderIndicators({
   mode: "light" | "dark";
   onToggleTheme: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
       {overallOk !== null && (
-        <Tooltip title="Santé globale — voir System Health">
+        <Tooltip title={t("header.globalHealth")}>
           <Chip
             component={RouterLink}
             to="/system-health"
             clickable
             size="small"
-            label={overallOk ? "OK" : "Incident"}
+            label={overallOk ? t("header.healthOk") : t("header.healthIncident")}
             color={overallOk ? "success" : "error"}
             sx={{ color: "#fff" }}
           />
         </Tooltip>
       )}
 
-      <Tooltip title="Alerts">
+      <Tooltip title={t("header.alerts")}>
         <IconButton component={RouterLink} to="/alerts" color="inherit">
           <Badge badgeContent={unreadCount} color="error" max={99}>
             <NotificationsIcon />
@@ -592,8 +619,8 @@ function HeaderIndicators({
         </IconButton>
       </Tooltip>
 
-      <Tooltip title={mode === "dark" ? "Passer en mode clair" : "Passer en mode sombre"}>
-        <IconButton color="inherit" onClick={onToggleTheme} aria-label="Basculer thème clair/sombre">
+      <Tooltip title={mode === "dark" ? t("header.switchToLight") : t("header.switchToDark")}>
+        <IconButton color="inherit" onClick={onToggleTheme} aria-label={t("header.toggleTheme")}>
           {mode === "dark" ? <Brightness7Icon /> : <Brightness4Icon />}
         </IconButton>
       </Tooltip>

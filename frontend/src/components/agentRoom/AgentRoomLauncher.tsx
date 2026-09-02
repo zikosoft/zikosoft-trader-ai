@@ -2,6 +2,7 @@ import ForumIcon from "@mui/icons-material/Forum";
 import { Fab, Paper, Tooltip } from "@mui/material";
 import { useAgentRoom } from "../../useAgentRoom";
 import AgentRoomPanel from "./AgentRoomPanel";
+import { useI18n } from "../../i18n/I18nContext";
 
 // §B28 checklist "boutons toujours accessibles" — point d'entrée flottant,
 // AU-DESSUS de tout le reste de l'app (D010/D011 "ne pas bloquer le
@@ -16,15 +17,16 @@ import AgentRoomPanel from "./AgentRoomPanel";
 // mobile (fullscreen) — un second point d'entrée flottant ferait doublon.
 
 export default function AgentRoomLauncher() {
+  const { t } = useI18n();
   const { mode, open, openRoom } = useAgentRoom();
 
   if (!open) {
     return (
-      <Tooltip title="AI Agent Room">
+      <Tooltip title={t("navigation.agentRoom")}>
         <Fab
           color="primary"
           onClick={() => openRoom()}
-          aria-label="Ouvrir l'AI Agent Room"
+          aria-label={t("agentRoom.open")}
           // §piège d'unités MUI (voir AppShell.tsx) — `bottom`/`right` sont
           // des propriétés d'espacement `sx` : un nombre brut serait
           // multiplié par `theme.spacing(1)`, jamais traité comme un pixel
