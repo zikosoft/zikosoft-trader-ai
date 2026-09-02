@@ -133,7 +133,7 @@ function AppShellInner({ user, contextState, onContextChanged, onLogout }: Props
   // localement via `AgentRoomDivider`) reste un état propre à ce shell,
   // volontairement pas persistée (seul le MODE l'est, §checklist "préférence
   // sauvegardée").
-  const { mode: roomMode, open: roomOpen, closeRoom } = useAgentRoom();
+  const { mode: roomMode, open: roomOpen, closeRoom, setMode } = useAgentRoom();
   const [dockedPercent, setDockedPercent] = useState(35);
   const mainRowRef = useRef<HTMLDivElement>(null);
 
@@ -143,6 +143,17 @@ function AppShellInner({ user, contextState, onContextChanged, onLogout }: Props
   // de sens sur un écran étroit (pas de place pour un 65/35), donc les deux
   // modes non-compact convergent vers la même feuille du bas sur mobile.
   const mobileSheetActive = roomOpen && roomMode !== "compact" && isMobile;
+
+  // Leaving the dedicated Agent Room route must not leave a fullscreen
+  // overlay covering the next page. Keep the room open as the small launcher
+  // requested by the UX, so the conversation remains available without
+  // blocking navigation. Returning to /agent-room opens fullscreen again via
+  // AgentRoomPage.
+  useEffect(() => {
+    if (location.pathname !== "/agent-room" && roomOpen && roomMode !== "compact") {
+      setMode("compact");
+    }
+  }, [location.pathname, roomOpen, roomMode, setMode]);
 
   function setCollapsedPersisted(value: boolean) {
     setCollapsed(value);

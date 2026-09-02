@@ -55,6 +55,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from shared.ai_governance import get_ai_calls_enabled
+from shared.ai_runtime_settings import get_ai_runtime_settings, get_configured_api_key
 from shared.ai_provider import AIProvider, AIProviderConfig, get_ai_provider
 from shared.eventbus import EventConsumer, publish_event
 from shared.events import EventEnvelope, Streams
@@ -164,17 +165,26 @@ def _manifest_capabilities(manifest: Any) -> list[str]:
     return capabilities if isinstance(capabilities, list) else []
 
 
-def _ai_config_from_env() -> AIProviderConfig:
+def _ai_config_from_env(redis_client=None) -> AIProviderConfig:
     """§B12 "AI Market Agent Strategy" — même construction que
     `risk_critic_agent._ai_config_from_env`/`market_agent` (B10/B14) :
     dupliquée volontairement plutôt que partagée entre agents, même
     principe déjà appliqué pour `_parse_bar_timestamp` (préoccupations et
     images Docker séparées, quelques lignes sans état à synchroniser)."""
+    runtime = get_ai_runtime_settings(redis_client, defaults={
+        "high_stakes_model": os.environ.get("AI_MODEL_HIGH_STAKES", "claude-sonnet-4-5"),
+        "low_stakes_model": os.environ.get("AI_MODEL_LOW_STAKES", "claude-haiku-4-5"),
+        "max_calls_per_minute": int(os.environ.get("AI_MAX_CALLS_PER_MINUTE", "30")),
+    }) if redis_client is not None else {}
     return AIProviderConfig(
-        high_stakes_model=os.environ.get("AI_MODEL_HIGH_STAKES", "claude-sonnet-4-5"),
-        low_stakes_model=os.environ.get("AI_MODEL_LOW_STAKES", "claude-haiku-4-5"),
-        max_calls_per_minute=int(os.environ.get("AI_MAX_CALLS_PER_MINUTE", "30")),
-        timeout_seconds=20.0,
+        high_stakes_model=runtime.get("high_stakes_model", os.environ.get("AI_MODEL_HIGH_STAKES", "claude-sonnet-4-5")),
+        low_stakes_model=runtime.get("low_stakes_model", os.environ.get("AI_MODEL_LOW_STAKES", "claude-haiku-4-5")),
+        max_calls_per_minute=int(runtime.get("max_calls_per_minute", os.environ.get("AI_MAX_CALLS_PER_MINUTE", "30"))),
+        max_calls_per_day=int(runtime.get("max_calls_per_day", os.environ.get("AI_MAX_CALLS_PER_DAY", "500"))),
+        daily_quota_client=redis_client,
+        timeout_seconds=float(runtime.get("timeout_seconds", 20.0)),
+        temperature=float(runtime.get("temperature", 0.2)),
+        max_tokens=int(runtime.get("max_tokens", 1024)),
     )
 
 
@@ -193,9 +203,9 @@ def _build_ai_provider(redis_client: redis.Redis) -> AIProvider | None:
     l'interrupteur global IA (D026) est désactivé — les stratégies IA
     basculent alors sur leur propre repli HOLD (voir
     `strategies/ai_market_agent_strategy/engine.py`), jamais un crash."""
-    config = _ai_config_from_env()
+    config = _ai_config_from_env(redis_client)
     config.enabled = get_ai_calls_enabled(redis_client, default=os.environ.get("AI_CALLS_ENABLED", "true") == "true")
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    api_key = get_configured_api_key(redis_client, fallback=os.environ.get("ANTHROPIC_API_KEY", ""))
     return get_ai_provider(api_key=api_key, config=config) if api_key else None
 
 

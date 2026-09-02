@@ -54,6 +54,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from shared.ai_governance import get_ai_calls_enabled
+from shared.ai_runtime_settings import get_ai_runtime_settings, get_configured_api_key
 from shared.ai_provider import AIProviderConfig, AIProviderError, ModelTier, get_ai_provider
 from shared.eventbus import publish_event
 from shared.events import EventEnvelope, Streams
@@ -476,14 +477,23 @@ def _extract_data_timestamps(evidence: dict) -> list[float]:
     return [ts for raw in candidates if (ts := _parse_timestamp(raw)) is not None]
 
 
-def _ai_config_from_env() -> AIProviderConfig:
+def _ai_config_from_env(redis_client=None) -> AIProviderConfig:
     import os
 
+    runtime = get_ai_runtime_settings(redis_client, defaults={
+        "high_stakes_model": os.environ.get("AI_MODEL_HIGH_STAKES", "claude-sonnet-4-5"),
+        "low_stakes_model": os.environ.get("AI_MODEL_LOW_STAKES", "claude-haiku-4-5"),
+        "max_calls_per_minute": int(os.environ.get("AI_MAX_CALLS_PER_MINUTE", "30")),
+    }) if redis_client is not None else {}
     return AIProviderConfig(
-        high_stakes_model=os.environ.get("AI_MODEL_HIGH_STAKES", "claude-sonnet-4-5"),
-        low_stakes_model=os.environ.get("AI_MODEL_LOW_STAKES", "claude-haiku-4-5"),
-        max_calls_per_minute=int(os.environ.get("AI_MAX_CALLS_PER_MINUTE", "30")),
-        timeout_seconds=20.0,
+        high_stakes_model=runtime.get("high_stakes_model", os.environ.get("AI_MODEL_HIGH_STAKES", "claude-sonnet-4-5")),
+        low_stakes_model=runtime.get("low_stakes_model", os.environ.get("AI_MODEL_LOW_STAKES", "claude-haiku-4-5")),
+        max_calls_per_minute=int(runtime.get("max_calls_per_minute", os.environ.get("AI_MAX_CALLS_PER_MINUTE", "30"))),
+        max_calls_per_day=int(runtime.get("max_calls_per_day", os.environ.get("AI_MAX_CALLS_PER_DAY", "500"))),
+        daily_quota_client=redis_client,
+        timeout_seconds=float(runtime.get("timeout_seconds", 20.0)),
+        temperature=float(runtime.get("temperature", 0.2)),
+        max_tokens=int(runtime.get("max_tokens", 1024)),
     )
 
 
@@ -495,10 +505,10 @@ def _summarize_with_ai(evidence: dict, redis_client: redis.Redis) -> dict | None
     que de prétendre en avoir un."""
     import os
 
-    config = _ai_config_from_env()
+    config = _ai_config_from_env(redis_client)
     config.enabled = get_ai_calls_enabled(redis_client, default=os.environ.get("AI_CALLS_ENABLED", "true") == "true")
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    api_key = get_configured_api_key(redis_client, fallback=os.environ.get("ANTHROPIC_API_KEY", ""))
     if not api_key:
         logger.info("ANTHROPIC_API_KEY absente — analyse IA sautée, données brutes publiées telles quelles")
         return None

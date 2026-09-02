@@ -66,7 +66,10 @@ STATUS_PAUSED = "PAUSED"
 STATUS_STOPPED = "STOPPED"
 STATUS_ERROR = "ERROR"
 
-_ACTIVATABLE_FROM = {STATUS_READY, STATUS_PAUSED}
+# STOPPED is a deliberate terminal state for the current run, not for the
+# strategy definition: a user must be able to restart the same configured
+# strategy after pressing Stop.
+_ACTIVATABLE_FROM = {STATUS_READY, STATUS_PAUSED, STATUS_STOPPED}
 _EDITABLE_FROM = {STATUS_DRAFT, STATUS_READY, STATUS_PAUSED, STATUS_STOPPED}
 
 

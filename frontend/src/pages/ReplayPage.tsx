@@ -72,6 +72,22 @@ export default function ReplayPage() {
       const s = await fetchReplaySession();
       setSession(s);
     } catch (err) {
+      // A freshly imported dataset has no Redis session yet. Start it at the
+      // first candle automatically so the page never looks like the import
+      // silently failed; the explicit Reset button remains available.
+      if (err instanceof ApiError && err.code === "NOT_FOUND") {
+        try {
+          const reset = await resetReplaySession();
+          const started = reset.current_index < 0 ? await advanceReplaySession() : reset;
+          setSession(started);
+          setSessionError(null);
+          return;
+        } catch (startErr) {
+          setSession(null);
+          setSessionError(startErr);
+          return;
+        }
+      }
       // §pas de session démarrée pour ce contexte (404) — c'est un état
       // normal (aucun `reset`/`advance` encore appelé), pas une erreur à
       // afficher en rouge ; même discipline que le 404
@@ -90,7 +106,8 @@ export default function ReplayPage() {
     setBusy(true);
     setActionError(null);
     try {
-      const s = await resetReplaySession();
+      const reset = await resetReplaySession();
+      const s = reset.current_index < 0 ? await advanceReplaySession() : reset;
       setSession(s);
       setSessionError(null);
     } catch (err) {

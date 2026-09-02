@@ -306,6 +306,12 @@ class TestCloneActivatePauseStop:
         assert response.status_code == 200
         assert response.json()["status"] == "STOPPED"
 
+        # STOPPED ends a run but must not make the configured strategy
+        # permanently unusable (the Play button must be able to relaunch it).
+        relaunched = paper_client.post(f"/api/strategies/instances/{created['id']}/activate")
+        assert relaunched.status_code == 200
+        assert relaunched.json()["status"] == "ACTIVE"
+
 
 class TestServiceLevelGuards:
     """Le service `strategy_instances.py` a ses propres gardes, indépendantes

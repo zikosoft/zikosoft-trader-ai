@@ -10,9 +10,11 @@ from fastapi.testclient import TestClient
 @pytest.fixture()
 def client(redis_client):
     redis_client.delete("settings:ai_calls_enabled")
+    redis_client.delete("settings:ai_runtime")
     with TestClient(app) as c:
         yield c
     redis_client.delete("settings:ai_calls_enabled")
+    redis_client.delete("settings:ai_runtime")
 
 
 @pytest.fixture()
@@ -37,6 +39,27 @@ def test_defaults_to_config_value_when_never_toggled(logged_in_client):
     assert body["max_calls_per_minute"] == settings.ai_max_calls_per_minute
     assert body["high_stakes_model"] == settings.ai_model_high_stakes
     assert body["low_stakes_model"] == settings.ai_model_low_stakes
+    assert body["max_calls_per_day"] == settings.ai_max_calls_per_day
+    assert body["api_key_configured"] is bool(settings.anthropic_api_key)
+
+
+def test_runtime_controls_persist_without_exposing_api_key(logged_in_client):
+    response = logged_in_client.put(
+        "/api/settings/ai",
+        json={
+            "enabled": True,
+            "low_stakes_model": "claude-haiku-4-5",
+            "temperature": 0.35,
+            "max_tokens": 512,
+            "max_calls_per_day": 42,
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["temperature"] == 0.35
+    assert body["max_tokens"] == 512
+    assert body["max_calls_per_day"] == 42
+    assert "api_key" not in body
 
 
 def test_toggle_off_then_on_persists_and_reflects_immediately(logged_in_client):

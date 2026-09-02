@@ -508,7 +508,9 @@ export default function StrategiesPage() {
             <TableBody>
               {list.map((instance) => {
                 const busy = pendingId === instance.id;
-                const canActivate = instance.status === "READY" || instance.status === "PAUSED";
+                // STOPPED means the previous run ended; the configured
+                // strategy remains reusable and can be started again.
+                const canActivate = instance.status === "READY" || instance.status === "PAUSED" || instance.status === "STOPPED";
                 const canPause = instance.status === "ACTIVE";
                 const canStop =
                   instance.status === "ACTIVE" ||

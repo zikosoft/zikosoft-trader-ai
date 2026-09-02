@@ -9,14 +9,22 @@ import { apiGet, apiPut } from "./client";
 export type AISettings = {
   enabled: boolean;
   max_calls_per_minute: number;
+  max_calls_per_day: number;
   high_stakes_model: string;
   low_stakes_model: string;
+  temperature: number;
+  max_tokens: number;
+  timeout_seconds: number;
+  daily_budget_usd: number;
+  api_key_configured: boolean;
 };
+
+export type AISettingsUpdate = Partial<Omit<AISettings, "api_key_configured">> & { api_key?: string };
 
 export async function fetchAISettings(): Promise<AISettings> {
   return apiGet<AISettings>("/api/settings/ai");
 }
 
-export async function updateAISettings(enabled: boolean): Promise<AISettings> {
-  return apiPut<AISettings>("/api/settings/ai", { enabled });
+export async function updateAISettings(update: boolean | AISettingsUpdate): Promise<AISettings> {
+  return apiPut<AISettings>("/api/settings/ai", typeof update === "boolean" ? { enabled: update } : update);
 }

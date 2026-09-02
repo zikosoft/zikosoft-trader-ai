@@ -41,9 +41,13 @@ class ModelTier:
 class AIProviderConfig:
     enabled: bool = True
     max_calls_per_minute: int = 30
+    max_calls_per_day: int = 500
+    # Set by agent containers when the shared Redis daily cap is enabled.
+    daily_quota_client: Any = None
     high_stakes_model: str = "claude-sonnet-4-5"
     low_stakes_model: str = "claude-haiku-4-5"
     timeout_seconds: float = 20.0
+    temperature: float = 0.2
     # §B10 checklist "budget de tokens configurable" — trouvé en écart le
     # 28/08 (audit B10) : `max_tokens` était figé en dur (1024) dans
     # `ClaudeAIProvider._call_structured`, jamais exposé sur la config
@@ -93,6 +97,17 @@ class AIProvider(abc.ABC):
         désactivé, si le quota est dépassé, ou en cas d'échec après retry."""
         if not self.config.enabled:
             raise AIProviderError("AI calls disabled via Settings (interrupteur global, D026)")
+        if self.config.daily_quota_client is not None:
+            from shared.ai_runtime_settings import consume_daily_call
+
+            try:
+                allowed_today = consume_daily_call(
+                    self.config.daily_quota_client, limit=self.config.max_calls_per_day
+                )
+            except Exception as exc:  # noqa: BLE001 - safe fallback when Redis is unavailable
+                raise AIProviderError("AI daily quota is unavailable") from exc
+            if not allowed_today:
+                raise AIProviderError(f"AI daily call limit exceeded ({context_label or 'unknown'})")
         if not self._limiter.allow():
             raise AIProviderError(f"AI call rate limit exceeded ({context_label or 'unknown'})")
         model = self.config.high_stakes_model if tier == ModelTier.HIGH_STAKES else self.config.low_stakes_model
@@ -129,6 +144,7 @@ class ClaudeAIProvider(AIProvider):
             response = client.messages.create(
                 model=model,
                 max_tokens=self.config.max_tokens,
+                temperature=self.config.temperature,
                 tools=[{"name": tool_name, "description": "Emit the structured result.", "input_schema": schema}],
                 tool_choice={"type": "tool", "name": tool_name},
                 messages=[{"role": "user", "content": prompt}],
@@ -191,6 +207,9 @@ def get_ai_provider(*, api_key: str, config: AIProviderConfig) -> AIProvider:
     provider.config.high_stakes_model = config.high_stakes_model
     provider.config.low_stakes_model = config.low_stakes_model
     provider.config.timeout_seconds = config.timeout_seconds
+    provider.config.temperature = config.temperature
+    provider.config.max_calls_per_day = config.max_calls_per_day
+    provider.config.daily_quota_client = config.daily_quota_client
     provider.config.max_tokens = config.max_tokens
     if provider.config.max_calls_per_minute != config.max_calls_per_minute:
         provider.config.max_calls_per_minute = config.max_calls_per_minute

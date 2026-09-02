@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     ai_model_high_stakes: str = "claude-sonnet-4-5"
     ai_model_low_stakes: str = "claude-haiku-4-5"
     ai_max_calls_per_minute: int = 30
+    ai_max_calls_per_day: int = 500
+    ai_temperature: float = 0.2
+    ai_max_tokens: int = 1024
+    ai_timeout_seconds: float = 20.0
+    ai_daily_budget_usd: float = 5.0
     ai_calls_enabled: bool = True
 
     telegram_bot_token: str = ""

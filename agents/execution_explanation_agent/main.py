@@ -47,6 +47,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from shared.ai_governance import get_ai_calls_enabled
+from shared.ai_runtime_settings import get_ai_runtime_settings, get_configured_api_key
 from shared.ai_provider import (
     AIProvider,
     AIProviderConfig,
@@ -129,12 +130,21 @@ _AGENT_MESSAGE_INSERT_SQL = text(
 )
 
 
-def _ai_config_from_env() -> AIProviderConfig:
+def _ai_config_from_env(redis_client=None) -> AIProviderConfig:
+    runtime = get_ai_runtime_settings(redis_client, defaults={
+        "high_stakes_model": os.environ.get("AI_MODEL_HIGH_STAKES", "claude-sonnet-4-5"),
+        "low_stakes_model": os.environ.get("AI_MODEL_LOW_STAKES", "claude-haiku-4-5"),
+        "max_calls_per_minute": int(os.environ.get("AI_MAX_CALLS_PER_MINUTE", "30")),
+    }) if redis_client is not None else {}
     return AIProviderConfig(
-        high_stakes_model=os.environ.get("AI_MODEL_HIGH_STAKES", "claude-sonnet-4-5"),
-        low_stakes_model=os.environ.get("AI_MODEL_LOW_STAKES", "claude-haiku-4-5"),
-        max_calls_per_minute=int(os.environ.get("AI_MAX_CALLS_PER_MINUTE", "30")),
-        timeout_seconds=20.0,
+        high_stakes_model=runtime.get("high_stakes_model", os.environ.get("AI_MODEL_HIGH_STAKES", "claude-sonnet-4-5")),
+        low_stakes_model=runtime.get("low_stakes_model", os.environ.get("AI_MODEL_LOW_STAKES", "claude-haiku-4-5")),
+        max_calls_per_minute=int(runtime.get("max_calls_per_minute", os.environ.get("AI_MAX_CALLS_PER_MINUTE", "30"))),
+        max_calls_per_day=int(runtime.get("max_calls_per_day", os.environ.get("AI_MAX_CALLS_PER_DAY", "500"))),
+        daily_quota_client=redis_client,
+        timeout_seconds=float(runtime.get("timeout_seconds", 20.0)),
+        temperature=float(runtime.get("temperature", 0.2)),
+        max_tokens=int(runtime.get("max_tokens", 1024)),
     )
 
 
@@ -461,9 +471,9 @@ def _process_envelope(engine: Engine, redis_client: redis.Redis, envelope: Event
 
     critique_reasoning = critique.get("reasoning") or {}
 
-    config = _ai_config_from_env()
+    config = _ai_config_from_env(redis_client)
     config.enabled = get_ai_calls_enabled(redis_client, default=os.environ.get("AI_CALLS_ENABLED", "true") == "true")
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    api_key = get_configured_api_key(redis_client, fallback=os.environ.get("ANTHROPIC_API_KEY", ""))
     # §quota d'appels global réellement effectif (`get_ai_provider`, cache
     # process, corrigé le 28/08 — voir shared/shared/ai_provider.py).
     ai_provider = get_ai_provider(api_key=api_key, config=config) if api_key else None
