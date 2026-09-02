@@ -40,6 +40,10 @@ def test_defaults_to_config_value_when_never_toggled(logged_in_client):
     assert body["high_stakes_model"] == settings.ai_model_high_stakes
     assert body["low_stakes_model"] == settings.ai_model_low_stakes
     assert body["max_calls_per_day"] == settings.ai_max_calls_per_day
+    assert body["daily_budget_usd"] == min(
+        settings.ai_daily_budget_usd, settings.ai_daily_budget_hard_cap_usd
+    )
+    assert body["daily_budget_hard_cap_usd"] == settings.ai_daily_budget_hard_cap_usd
     assert body["api_key_configured"] is bool(settings.anthropic_api_key)
 
 
@@ -60,6 +64,20 @@ def test_runtime_controls_persist_without_exposing_api_key(logged_in_client):
     assert body["max_tokens"] == 512
     assert body["max_calls_per_day"] == 42
     assert "api_key" not in body
+
+
+def test_daily_budget_above_deployment_hard_cap_is_rejected(logged_in_client):
+    before = logged_in_client.get("/api/settings/ai").json()
+    response = logged_in_client.put(
+        "/api/settings/ai",
+        json={
+            "enabled": not before["enabled"],
+            "daily_budget_usd": settings.ai_daily_budget_hard_cap_usd + 0.01,
+        },
+    )
+    assert response.status_code == 422
+    assert "hard cap" in response.json()["error"]["message"]
+    assert logged_in_client.get("/api/settings/ai").json()["enabled"] is before["enabled"]
 
 
 def test_toggle_off_then_on_persists_and_reflects_immediately(logged_in_client):

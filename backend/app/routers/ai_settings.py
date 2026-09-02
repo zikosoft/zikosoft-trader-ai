@@ -23,21 +23,27 @@ from shared.ai_runtime_settings import (
 router = APIRouter(prefix="/api/settings/ai", tags=["settings"])
 
 
+def _runtime_defaults() -> dict[str, object]:
+    """Bootstrap values only; UI changes remain in Redis after first save."""
+    return {
+        "max_calls_per_minute": settings.ai_max_calls_per_minute,
+        "max_calls_per_day": settings.ai_max_calls_per_day,
+        "high_stakes_model": settings.ai_model_high_stakes,
+        "low_stakes_model": settings.ai_model_low_stakes,
+        "temperature": settings.ai_temperature,
+        "max_tokens": settings.ai_max_tokens,
+        "timeout_seconds": settings.ai_timeout_seconds,
+        "daily_budget_usd": settings.ai_daily_budget_usd,
+    }
+
+
 def _current() -> AISettingsOut:
     from shared.ai_governance import get_ai_calls_enabled
 
     runtime = get_ai_runtime_settings(
         redis_client,
-        defaults={
-            "max_calls_per_minute": settings.ai_max_calls_per_minute,
-            "max_calls_per_day": settings.ai_max_calls_per_day,
-            "high_stakes_model": settings.ai_model_high_stakes,
-            "low_stakes_model": settings.ai_model_low_stakes,
-            "temperature": settings.ai_temperature,
-            "max_tokens": settings.ai_max_tokens,
-            "timeout_seconds": settings.ai_timeout_seconds,
-            "daily_budget_usd": settings.ai_daily_budget_usd,
-        },
+        defaults=_runtime_defaults(),
+        daily_budget_hard_cap_usd=settings.ai_daily_budget_hard_cap_usd,
     )
     return AISettingsOut(
         enabled=get_ai_calls_enabled(redis_client, default=settings.ai_calls_enabled),
@@ -49,6 +55,7 @@ def _current() -> AISettingsOut:
         max_tokens=int(runtime["max_tokens"]),
         timeout_seconds=float(runtime["timeout_seconds"]),
         daily_budget_usd=float(runtime["daily_budget_usd"]),
+        daily_budget_hard_cap_usd=float(settings.ai_daily_budget_hard_cap_usd),
         api_key_configured=api_key_is_configured(
             redis_client, fallback=settings.anthropic_api_key, encryption_key=settings.app_encryption_key
         ),
@@ -66,27 +73,32 @@ def update_ai_settings(
 ) -> AISettingsOut:
     from shared.ai_governance import set_ai_calls_enabled
 
-    # §D026 "en un clic sans redéployer" : effet immédiat — le prochain
-    # tick de n'importe quel agent consommateur d'IA relit ce flag avant
-    # son prochain appel (voir agents/market_agent/main.py).
-    set_ai_calls_enabled(redis_client, payload.enabled)
     values = payload.model_dump(exclude_none=True)
     values.pop("enabled", None)
     api_key = values.pop("api_key", None)
+    requested_budget = values.get("daily_budget_usd")
+    if (
+        requested_budget is not None
+        and float(requested_budget) > settings.ai_daily_budget_hard_cap_usd
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "daily_budget_usd exceeds the deployment hard cap; "
+                "change AI_DAILY_BUDGET_HARD_CAP_USD in .env to raise it"
+            ),
+        )
+    # §D026 "en un clic sans redéployer" : effet immédiat — le prochain
+    # tick de n'importe quel agent consommateur d'IA relit ce flag avant
+    # son prochain appel (voir agents/market_agent/main.py). This is placed
+    # after validation so a rejected payload cannot change the toggle.
+    set_ai_calls_enabled(redis_client, payload.enabled)
     if values:
         set_ai_runtime_settings(
             redis_client,
             values,
-            defaults={
-                "max_calls_per_minute": settings.ai_max_calls_per_minute,
-                "max_calls_per_day": settings.ai_max_calls_per_day,
-                "high_stakes_model": settings.ai_model_high_stakes,
-                "low_stakes_model": settings.ai_model_low_stakes,
-                "temperature": settings.ai_temperature,
-                "max_tokens": settings.ai_max_tokens,
-                "timeout_seconds": settings.ai_timeout_seconds,
-                "daily_budget_usd": settings.ai_daily_budget_usd,
-            },
+            defaults=_runtime_defaults(),
+            daily_budget_hard_cap_usd=settings.ai_daily_budget_hard_cap_usd,
         )
     if api_key is not None:
         if api_key == "":
@@ -99,7 +111,11 @@ def update_ai_settings(
             redis_client.set("settings:ai_runtime", json.dumps(runtime, sort_keys=True))
         else:
             try:
-                set_encrypted_api_key(redis_client, encrypt_secret(api_key))
+                set_encrypted_api_key(
+                    redis_client,
+                    encrypt_secret(api_key),
+                    daily_budget_hard_cap_usd=settings.ai_daily_budget_hard_cap_usd,
+                )
             except EncryptionKeyMissing as exc:
                 raise HTTPException(status_code=503, detail="AI key encryption is not configured") from exc
     return _current()

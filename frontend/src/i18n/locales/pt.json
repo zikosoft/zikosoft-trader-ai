@@ -223,6 +223,7 @@
   "aiGovernance.maxTokens": "Máximo de tokens de saída",
   "aiGovernance.timeout": "Tempo limite (segundos)",
   "aiGovernance.dailyBudget": "Orçamento diário (USD)",
+  "aiGovernance.dailyBudgetHardCap": "Limite rígido: ${{value}} (ficheiro .env da implementação)",
   "aiGovernance.apiKey": "Chave API Anthropic",
   "aiGovernance.apiKeyConfigured": "Configurada — introduza uma nova chave para substituir",
   "aiGovernance.apiKeyHelp": "Armazenada encriptada no servidor; nunca devolvida ao navegador.",

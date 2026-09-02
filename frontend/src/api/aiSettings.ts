@@ -16,10 +16,13 @@ export type AISettings = {
   max_tokens: number;
   timeout_seconds: number;
   daily_budget_usd: number;
+  daily_budget_hard_cap_usd: number;
   api_key_configured: boolean;
 };
 
-export type AISettingsUpdate = Partial<Omit<AISettings, "api_key_configured">> & { api_key?: string };
+export type AISettingsUpdate = Partial<
+  Omit<AISettings, "api_key_configured" | "daily_budget_hard_cap_usd">
+> & { api_key?: string };
 
 export async function fetchAISettings(): Promise<AISettings> {
   return apiGet<AISettings>("/api/settings/ai");

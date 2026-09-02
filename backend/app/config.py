@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,10 +27,9 @@ class Settings(BaseSettings):
 
     # Vide par défaut : une clé absente doit faire échouer explicitement tout
     # chiffrement/déchiffrement (§B08 "Tester clé de chiffrement absente"),
-    # jamais stocker un secret en clair par accident. `.env.example` fournit
-    # une vraie clé Fernet générée pour que le dev local fonctionne out of
-    # the box (comme le reste du socle) — à régénérer pour tout environnement
-    # au-delà du dev local (voir B38).
+    # jamais stocker un secret en clair par accident. Chaque environnement
+    # doit générer sa propre clé Fernet dans son `.env` ; aucune clé générée
+    # ne doit être versionnée dans `.env.example`.
     app_encryption_key: str = ""
 
     # --- Alpaca (B07) ---
@@ -46,11 +46,15 @@ class Settings(BaseSettings):
     ai_model_high_stakes: str = "claude-sonnet-4-5"
     ai_model_low_stakes: str = "claude-haiku-4-5"
     ai_max_calls_per_minute: int = 30
-    ai_max_calls_per_day: int = 500
+    ai_max_calls_per_day: int = 50
     ai_temperature: float = 0.2
     ai_max_tokens: int = 1024
     ai_timeout_seconds: float = 20.0
-    ai_daily_budget_usd: float = 5.0
+    ai_daily_budget_usd: float = Field(default=2.0, ge=0.0, le=10_000.0)
+    # Plafond de déploiement : il ne transite jamais dans une requête de mise
+    # à jour et ne peut donc pas être augmenté depuis Settings. L'opérateur
+    # le modifie exclusivement dans `.env`, puis redémarre les services.
+    ai_daily_budget_hard_cap_usd: float = Field(default=10.0, gt=0.0, le=10_000.0)
     ai_calls_enabled: bool = True
 
     telegram_bot_token: str = ""

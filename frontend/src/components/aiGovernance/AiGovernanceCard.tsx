@@ -147,7 +147,7 @@ export default function AiGovernanceCard() {
             </Stack>
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
               <TextField type="number" fullWidth label={t("aiGovernance.timeout")} value={draft.timeout_seconds ?? ""} onChange={(e) => changeField("timeout_seconds", Number(e.target.value))} inputProps={{ min: 1, max: 120 }} disabled={pending} />
-              <TextField type="number" fullWidth label={t("aiGovernance.dailyBudget")} value={draft.daily_budget_usd ?? ""} onChange={(e) => changeField("daily_budget_usd", Number(e.target.value))} inputProps={{ min: 0, max: 10000, step: 0.5 }} disabled={pending} />
+              <TextField type="number" fullWidth label={t("aiGovernance.dailyBudget")} value={draft.daily_budget_usd ?? ""} onChange={(e) => changeField("daily_budget_usd", Number(e.target.value))} inputProps={{ min: 0, max: settings.daily_budget_hard_cap_usd, step: 0.5 }} helperText={t("aiGovernance.dailyBudgetHardCap", { value: settings.daily_budget_hard_cap_usd.toFixed(2) })} disabled={pending} />
             </Stack>
             <TextField fullWidth type="password" label={t("aiGovernance.apiKey")} placeholder={settings.api_key_configured ? t("aiGovernance.apiKeyConfigured") : "sk-ant-…"} value={apiKey} onChange={(e) => { setApiKey(e.target.value); setDirty(true); }} disabled={pending} autoComplete="new-password" helperText={t("aiGovernance.apiKeyHelp")} />
             <Box sx={{ display: "flex", justifyContent: "flex-end" }}>

@@ -17,19 +17,39 @@ AI_DAILY_CALL_KEY_PREFIX = "settings:ai_calls:day:"
 
 DEFAULTS: dict[str, Any] = {
     "max_calls_per_minute": 30,
-    "max_calls_per_day": 500,
+    "max_calls_per_day": 50,
     "high_stakes_model": "claude-sonnet-4-5",
     "low_stakes_model": "claude-haiku-4-5",
     "temperature": 0.2,
     "max_tokens": 1024,
     "timeout_seconds": 20.0,
-    "daily_budget_usd": 5.0,
+    "daily_budget_usd": 2.0,
 }
 
 
-def get_ai_runtime_settings(redis_client, *, defaults: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Return validated, non-secret runtime settings merged with defaults."""
+def _normalise_daily_budget_hard_cap(value: float | int | None) -> float:
+    """Return a safe server-side USD ceiling for UI-controlled budgets."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and 0 < float(value) <= 10_000:
+        return float(value)
+    return 10.0
+
+
+def get_ai_runtime_settings(
+    redis_client,
+    *,
+    defaults: dict[str, Any] | None = None,
+    daily_budget_hard_cap_usd: float | int | None = None,
+) -> dict[str, Any]:
+    """Return validated, non-secret runtime settings merged with defaults.
+
+    ``daily_budget_hard_cap_usd`` belongs to the deployment configuration,
+    never to the Redis/UI payload.  Existing Redis values are clamped during
+    reads as an additional defence if an older deployment stored a larger
+    budget before this invariant was introduced.
+    """
+    hard_cap = _normalise_daily_budget_hard_cap(daily_budget_hard_cap_usd)
     merged = {**DEFAULTS, **(defaults or {})}
+    merged["daily_budget_usd"] = min(float(merged["daily_budget_usd"]), hard_cap)
     raw = redis_client.get(AI_RUNTIME_REDIS_KEY)
     if raw is None:
         return merged
@@ -56,20 +76,29 @@ def get_ai_runtime_settings(redis_client, *, defaults: dict[str, Any] | None = N
                 merged[key] = float(value)
         elif key in {"daily_budget_usd"}:
             if isinstance(value, (int, float)) and not isinstance(value, bool) and 0 <= float(value) <= 10_000:
-                merged[key] = float(value)
+                merged[key] = min(float(value), hard_cap)
         elif isinstance(value, str) and value.strip():
             merged[key] = value.strip()
     return merged
 
 
 def set_ai_runtime_settings(
-    redis_client, values: dict[str, Any], *, defaults: dict[str, Any] | None = None
+    redis_client,
+    values: dict[str, Any],
+    *,
+    defaults: dict[str, Any] | None = None,
+    daily_budget_hard_cap_usd: float | int | None = None,
 ) -> None:
-    """Persist non-secret settings. Unknown keys are deliberately ignored."""
-    current = get_ai_runtime_settings(redis_client, defaults=defaults)
+    """Persist non-secret settings without allowing a UI budget above the cap."""
+    hard_cap = _normalise_daily_budget_hard_cap(daily_budget_hard_cap_usd)
+    current = get_ai_runtime_settings(
+        redis_client,
+        defaults=defaults,
+        daily_budget_hard_cap_usd=hard_cap,
+    )
     for key in DEFAULTS:
         if key in values:
-            current[key] = values[key]
+            current[key] = min(float(values[key]), hard_cap) if key == "daily_budget_usd" else values[key]
     redis_client.set(AI_RUNTIME_REDIS_KEY, json.dumps(current, sort_keys=True))
 
 
@@ -97,9 +126,17 @@ def get_configured_api_key(redis_client, *, fallback: str = "", encryption_key: 
         return fallback
 
 
-def set_encrypted_api_key(redis_client, ciphertext: str) -> None:
+def set_encrypted_api_key(
+    redis_client,
+    ciphertext: str,
+    *,
+    daily_budget_hard_cap_usd: float | int | None = None,
+) -> None:
     """Store an already-encrypted API key alongside runtime settings."""
-    current = get_ai_runtime_settings(redis_client)
+    current = get_ai_runtime_settings(
+        redis_client,
+        daily_budget_hard_cap_usd=daily_budget_hard_cap_usd,
+    )
     current["api_key_ciphertext"] = ciphertext
     redis_client.set(AI_RUNTIME_REDIS_KEY, json.dumps(current, sort_keys=True))
 

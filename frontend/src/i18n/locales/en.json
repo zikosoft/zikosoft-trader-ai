@@ -223,6 +223,7 @@
   "aiGovernance.maxTokens": "Max output tokens",
   "aiGovernance.timeout": "Request timeout (seconds)",
   "aiGovernance.dailyBudget": "Daily budget (USD)",
+  "aiGovernance.dailyBudgetHardCap": "Hard cap: ${{value}} (deployment .env)",
   "aiGovernance.apiKey": "Anthropic API key",
   "aiGovernance.apiKeyConfigured": "Configured — enter a new key to replace it",
   "aiGovernance.apiKeyHelp": "Stored encrypted on the server; never returned to the browser.",

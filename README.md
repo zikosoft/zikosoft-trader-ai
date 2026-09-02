@@ -9,7 +9,11 @@
 
 ```bash
 cp .env.example .env
-# éditer .env si besoin (valeurs par défaut utilisables en local)
+# Générer une clé propre à cet environnement avant de saisir des clés Alpaca
+# ou Anthropic dans l'interface :
+# python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# Puis coller le résultat dans APP_ENCRYPTION_KEY de .env.
+# Ne jamais versionner ou envoyer ce fichier.
 make up-core        # socle applicatif : postgres, redis, backend-api,
                      # frontend, les 4 agents et les 4 workers (squelettes
                      # tant que leur brique métier n'est pas livrée)
@@ -43,6 +47,15 @@ Une fois les conteneurs démarrés, l'app est sur `http://localhost:5173` —
 formulaire de connexion préchargé avec les identifiants démo (voir
 `DEMO_USER_EMAIL`/`DEMO_USER_PASSWORD` dans `.env`), puis écran "Choose your
 experience" (Historical Replay / Alpaca Paper, B06).
+
+### Claude cost safety
+
+`AI_DAILY_BUDGET_USD` is the initial daily budget proposed by Settings. The
+non-editable deployment ceiling is `AI_DAILY_BUDGET_HARD_CAP_USD` (default:
+`10`). It lives only in `.env`: the browser can select a lower amount but the
+API rejects every attempt above this cap. Restart the services after changing
+the cap. The runtime spend-estimation stop is completed in the next hardening
+phase; until then, leave `AI_CALLS_ENABLED=false` outside a supervised demo.
 
 ## Structure du monorepo
 

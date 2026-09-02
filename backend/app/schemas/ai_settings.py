@@ -15,6 +15,9 @@ class AISettingsOut(BaseModel):
     max_tokens: int
     timeout_seconds: float
     daily_budget_usd: float
+    # Read-only value from deployment configuration. It has no corresponding
+    # field in UpdateAISettingsRequest, so a browser can never raise it.
+    daily_budget_hard_cap_usd: float
     api_key_configured: bool
 
 
