@@ -1,21 +1,19 @@
 # `replay_data/`
 
-Contient le dataset fixe du Replay Engine (B19) : `dataset.json`, produit par
-`scripts/fetch_replay_dataset.py` à partir de vraies données Alpaca (une
-journée, quelques symboles — voir le docstring du script pour les commandes
-exactes `alpaca data bars ...`).
+Contains the fixed Replay Engine dataset (`dataset.json`). The repository
+currently ships a full-session **synthetic UI fixture** for a non-empty,
+credentials-free Replay screen. It is not an Alpaca export, is not historical
+market evidence, and must never be shown as an executed-trade demonstration.
 
-Ce dossier est intentionnellement vide dans le dépôt et dans l'image Docker
-tant que ce script n'a pas été exécuté avec de vraies clés Alpaca — cette
-sandbox de développement n'a ni accès réseau vers Alpaca ni les identifiants
-pour le faire à ta place (même principe que `scripts/alpaca_cli_backtest.py`,
-B12/D021).
+The Replay screen can display a deterministic options-path preview from this
+fixture. That preview uses the existing Moving Average Crossover logic, but
+its option contract/quote is explicitly synthetic: it does not call Alpaca,
+MCP, Claude, the Risk Engine, or the Order Worker. Paper Trading remains the
+only environment that proves agents, real option data, risk approval, and an
+actual order.
 
-Tant que `dataset.json` n'existe pas ici, `GET /api/replay/dataset` répond
-honnêtement `404 NOT_FOUND` plutôt que de fabriquer des données — voir
-`backend/app/routers/replay.py`.
-
-Pour produire le dataset :
+To replace this fixture with a real historical dataset, generate it from your
+own Alpaca data and keep the same destination:
 
 ```
 python scripts/fetch_replay_dataset.py \

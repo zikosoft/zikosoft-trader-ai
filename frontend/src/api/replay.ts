@@ -6,6 +6,7 @@
 // uniquement, par instruction explicite de Zac ("minimum de travail").
 
 import { apiGet, apiPost } from "./client";
+import type { OptionInstrument } from "./options";
 
 export type ReplayDataset = {
   dataset_id: string;
@@ -35,6 +36,25 @@ export type ReplaySession = {
   is_finished: boolean;
 };
 
+/**
+ * A read-only synthetic illustration. It is intentionally not an agent
+ * proposal, risk decision or order, and is never evidence of Paper trading.
+ */
+export type ReplayOptionsPreview = {
+  source: "SYNTHETIC_REPLAY_FIXTURE";
+  strategy_type_code: "moving_average_crossover";
+  strategy_parameters: Record<string, number>;
+  current_index: number;
+  underlying_symbol: string | null;
+  signal: "BUY" | "SELL" | "HOLD";
+  signal_reasoning_code: "INSUFFICIENT_BARS" | "NO_CROSSOVER" | "CROSSOVER_UP" | "CROSSOVER_DOWN";
+  option_action: "LONG_CALL" | "LONG_PUT" | "NO_ORDER";
+  option_instrument: OptionInstrument | null;
+  risk_status: "NOT_EVALUATED_IN_REPLAY";
+  execution_status: "NOT_SENT_REPLAY";
+  is_order_evidence: false;
+};
+
 export async function fetchReplayDataset(): Promise<ReplayDataset> {
   return apiGet<ReplayDataset>("/api/replay/dataset");
 }
@@ -49,4 +69,8 @@ export async function resetReplaySession(): Promise<ReplaySession> {
 
 export async function advanceReplaySession(): Promise<ReplaySession> {
   return apiPost<ReplaySession>("/api/replay/session/advance");
+}
+
+export async function fetchReplayOptionsPreview(): Promise<ReplayOptionsPreview> {
+  return apiGet<ReplayOptionsPreview>("/api/replay/options-preview");
 }

@@ -1,8 +1,8 @@
-"""Routes du Replay Engine (B19, Étape A — squelette minimal). Dataset fixe
-chargé depuis disque (voir `scripts/fetch_replay_dataset.py` et
-`shared/shared/replay_market_data.py`), lecture x1 simple (pas de
-vitesses x2/x5/x10 — ça, c'est l'Étape B, après B11-B17, voir la
-"Séquencement révisé" dans AVANCEMENT.md).
+"""Routes du Replay Engine (B19). Dataset fixe chargé depuis disque
+(voir `scripts/fetch_replay_dataset.py` et
+`shared/shared/replay_market_data.py`), lecture x1 simple (pas de vitesses
+x2/x5/x10). Phase 2 adds one read-only synthetic options-path preview; it
+does not publish a strategy event, evaluate risk, or execute an order.
 
 Isolation par contexte : ces routes exigent un contexte REPLAY actif (même
 principe que `routers/portfolio.py`/`routers/strategy_instances.py`) — un
@@ -34,6 +34,7 @@ from shared.replay_market_data import (
     load_dataset,
 )
 from shared.replay_state import clear_replay_session, get_replay_session, set_replay_session
+from shared.replay_options_preview import build_replay_options_preview
 
 from ..api_errors import api_error_response
 from ..auth import get_current_user
@@ -42,7 +43,7 @@ from ..context import active_context, ensure_user_contexts
 from ..db import get_db
 from ..models import User
 from ..redis_client import redis_client
-from ..schemas.replay import ReplayBarOut, ReplayDatasetOut, ReplaySessionOut
+from ..schemas.replay import ReplayBarOut, ReplayDatasetOut, ReplayOptionsPreviewOut, ReplaySessionOut
 
 router = APIRouter(prefix="/api/replay", tags=["replay"])
 
@@ -174,3 +175,48 @@ def get_session(user: User = Depends(get_current_user), db: Session = Depends(ge
     provider = ReplayMarketDataProvider(dataset)
     provider.seek(session["index"])
     return _session_out(dataset, provider)
+
+
+@router.get("/options-preview", response_model=ReplayOptionsPreviewOut)
+def get_options_preview(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Expose a deterministic, non-executable options illustration.
+
+    This endpoint is deliberately isolated behind the active Replay context
+    and reads only the immutable dataset/current Redis index. It does not
+    contact Alpaca/MCP/Claude, publish an agent event, evaluate risk, or
+    create an order. Paper remains the sole execution proof path.
+    """
+    try:
+        context_id = _require_active_replay_context_id(db, user)
+    except _NoActiveReplayContext:
+        return _no_active_replay_context_error()
+
+    try:
+        dataset = load_dataset(_dataset_path())
+    except ReplayDatasetError as exc:
+        return _dataset_not_found_error(exc)
+
+    session = get_replay_session(redis_client, context_id)
+    if session is None or session["dataset_id"] != dataset.dataset_id:
+        return api_error_response(
+            404,
+            ErrorCode.NOT_FOUND,
+            "aucune session Replay démarrée pour ce contexte — POST /api/replay/session/reset ou "
+            "/api/replay/session/advance d'abord",
+        )
+
+    preview = build_replay_options_preview(dataset, current_index=session["index"])
+    return ReplayOptionsPreviewOut(
+        source=preview.source,
+        strategy_type_code=preview.strategy_type_code,
+        strategy_parameters=preview.strategy_parameters,
+        current_index=preview.current_index,
+        underlying_symbol=preview.underlying_symbol,
+        signal=preview.signal,
+        signal_reasoning_code=preview.signal_reasoning_code,
+        option_action=preview.option_action,
+        option_instrument=preview.option_instrument,
+        risk_status=preview.risk_status,
+        execution_status=preview.execution_status,
+        is_order_evidence=preview.is_order_evidence,
+    )

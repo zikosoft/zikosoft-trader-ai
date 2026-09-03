@@ -7,6 +7,8 @@ mémoire puis sauvegardé dans un `tmp_path` (pas de vrai dataset ici — voir
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from app.config import settings
 from app.db import engine
@@ -33,6 +35,27 @@ def _bars_by_symbol(symbols=("AAPL", "MSFT", "SPY"), timestamps=TS, base_price=1
             for ts in timestamps
         }
     return out
+
+
+def _crossover_bars_by_symbol() -> dict[str, dict[str, dict]]:
+    """22 deterministic one-minute bars that trigger the existing MA(9/21)
+    strategy exactly once on the final AAPL candle."""
+    start = datetime(2026, 8, 31, 13, 30, tzinfo=UTC)
+    timestamps = [(start + timedelta(minutes=i)).isoformat() for i in range(22)]
+    closes = [100.0] * 21 + [104.0]
+    return {
+        symbol: {
+            timestamp: {
+                "open": close,
+                "high": close + 0.5,
+                "low": close - 0.5,
+                "close": close,
+                "volume": 1000.0,
+            }
+            for timestamp, close in zip(timestamps, closes, strict=True)
+        }
+        for symbol in ("AAPL", "MSFT", "SPY")
+    }
 
 
 @pytest.fixture(autouse=True)
@@ -101,6 +124,10 @@ class TestAuthAndContextRequired:
         response = client.post("/api/replay/session/reset")
         assert response.status_code == 401
 
+    def test_options_preview_requires_auth(self, client):
+        response = client.get("/api/replay/options-preview")
+        assert response.status_code == 401
+
     def test_session_reset_requires_replay_context(self, paper_client, dataset_path):
         response = paper_client.post("/api/replay/session/reset")
         assert response.status_code == 400
@@ -110,6 +137,10 @@ class TestAuthAndContextRequired:
         # §isolation d'abord : même sans dataset sur disque, un contexte
         # Paper ne doit jamais atteindre le chargement du dataset Replay.
         response = paper_client.post("/api/replay/session/advance")
+        assert response.status_code == 400
+
+    def test_options_preview_requires_replay_context_even_without_dataset(self, paper_client):
+        response = paper_client.get("/api/replay/options-preview")
         assert response.status_code == 400
 
     def test_no_active_context_at_all_is_rejected(self, logged_in_client, dataset_path):
@@ -214,6 +245,67 @@ class TestSessionFlow:
         body = response.json()
         assert body["dataset_id"] == "test-2026-09-01"
         assert body["current_index"] == 0  # reparti de zéro, pas de seek() hors bornes
+
+
+class TestOptionsPreview:
+    def test_preview_waits_without_a_candle_and_never_claims_order_evidence(self, replay_client, dataset_path):
+        replay_client.post("/api/replay/session/reset")
+
+        response = replay_client.get("/api/replay/options-preview")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["source"] == "SYNTHETIC_REPLAY_FIXTURE"
+        assert body["strategy_type_code"] == "moving_average_crossover"
+        assert body["signal"] == "HOLD"
+        assert body["option_action"] == "NO_ORDER"
+        assert body["option_instrument"] is None
+        assert body["risk_status"] == "NOT_EVALUATED_IN_REPLAY"
+        assert body["execution_status"] == "NOT_SENT_REPLAY"
+        assert body["is_order_evidence"] is False
+
+    def test_preview_uses_existing_ma_mapping_to_synthetic_long_call(self, replay_client, tmp_path, monkeypatch):
+        path = tmp_path / "crossover-dataset.json"
+        dataset = build_dataset(
+            dataset_id="replay-preview-crossover",
+            trading_day="2026-08-31",
+            timezone="America/New_York",
+            bars_by_symbol=_crossover_bars_by_symbol(),
+        )
+        save_dataset(dataset, path)
+        monkeypatch.setattr(settings, "replay_dataset_path", str(path))
+
+        replay_client.post("/api/replay/session/reset")
+        for _ in range(22):
+            replay_client.post("/api/replay/session/advance")
+
+        with engine.connect() as conn:
+            orders_before = conn.execute(
+                text(
+                    "SELECT COUNT(*) FROM orders WHERE execution_context_id = "
+                    "(SELECT id FROM execution_contexts WHERE kind = 'REPLAY' AND is_active = true LIMIT 1)"
+                )
+            ).scalar_one()
+
+        first = replay_client.get("/api/replay/options-preview")
+        second = replay_client.get("/api/replay/options-preview")
+        assert first.status_code == second.status_code == 200
+        assert first.json() == second.json()  # no randomness, no external quote
+
+        body = first.json()
+        assert body["signal"] == "BUY"
+        assert body["option_action"] == "LONG_CALL"
+        assert body["option_instrument"]["option_type"] == "call"
+        assert body["option_instrument"]["symbol"].startswith("AAPL260918C")
+        assert body["option_instrument"]["quantity"] == 1
+        assert body["is_order_evidence"] is False
+        with engine.connect() as conn:
+            orders_after = conn.execute(
+                text(
+                    "SELECT COUNT(*) FROM orders WHERE execution_context_id = "
+                    "(SELECT id FROM execution_contexts WHERE kind = 'REPLAY' AND is_active = true LIMIT 1)"
+                )
+            ).scalar_one()
+        assert orders_after == orders_before
 
 
 class TestIsolationBetweenContexts:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pydantic import BaseModel
+from shared.options import OptionInstrument
 
 
 class ReplayDatasetOut(BaseModel):
@@ -31,3 +32,20 @@ class ReplaySessionOut(BaseModel):
     current_timestamp: str | None
     current_bars: dict[str, ReplayBarOut]
     is_finished: bool
+
+
+class ReplayOptionsPreviewOut(BaseModel):
+    """Read-only, explicitly synthetic illustration for the Replay screen."""
+
+    source: str
+    strategy_type_code: str
+    strategy_parameters: dict[str, int]
+    current_index: int
+    underlying_symbol: str | None
+    signal: str
+    signal_reasoning_code: str
+    option_action: str
+    option_instrument: OptionInstrument | None
+    risk_status: str
+    execution_status: str
+    is_order_evidence: bool

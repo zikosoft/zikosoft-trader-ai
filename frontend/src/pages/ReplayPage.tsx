@@ -19,13 +19,16 @@ import { ApiError, describeError } from "../api/client";
 import {
   advanceReplaySession,
   fetchReplayDataset,
+  fetchReplayOptionsPreview,
   fetchReplaySession,
   resetReplaySession,
   type ReplayDataset,
+  type ReplayOptionsPreview,
   type ReplaySession,
 } from "../api/replay";
 import { formatDateTime, formatNumber } from "../i18n/formatters";
 import { useI18n } from "../i18n/I18nContext";
+import ReplayOptionsPreviewCard from "../components/replay/ReplayOptionsPreviewCard";
 
 // §écran dédié Replay (28/08 — fermeture du dernier gap réel signalé par
 // Zac : `ReplayPage` était encore un `PlaceholderPage` alors que toutes les
@@ -35,10 +38,10 @@ import { useI18n } from "../i18n/I18nContext";
 // délibérément minimal par instruction explicite de Zac ("je veux juste
 // que ça soit fonctionnelle, pas de travail exceptionnel") : lecture
 // manuelle bougie-par-bougie uniquement, consommant le squelette Étape A de
-// B19 (`GET/POST /api/replay/*`) tel quel. Pas de lecture automatique, pas
-// de vitesses x1/x2/x5/x10, pas de pipeline stratégie/ordres branché — ça,
-// c'est l'Étape B du Replay Engine (voir docstring backend
-// `routers/replay.py`), hors scope ici.
+// B19 (`GET/POST /api/replay/*`) tel quel. La Phase 2 ajoute un aperçu
+// d'option synthétique et non exécutable fondé sur Moving Average Crossover :
+// il rend le mapping BUY→call / SELL→put visible, mais ne lance ni agent,
+// ni Risk Engine, ni ordre. La preuve de trading reste exclusivement Paper.
 export default function ReplayPage() {
   const { locale, t } = useI18n();
   const [dataset, setDataset] = useState<ReplayDataset | null>(null);
@@ -47,6 +50,9 @@ export default function ReplayPage() {
 
   const [session, setSession] = useState<ReplaySession | null>(null);
   const [sessionError, setSessionError] = useState<unknown>(null);
+  const [optionsPreview, setOptionsPreview] = useState<ReplayOptionsPreview | null>(null);
+  const [optionsPreviewLoading, setOptionsPreviewLoading] = useState(false);
+  const [optionsPreviewError, setOptionsPreviewError] = useState<string | null>(null);
 
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -66,11 +72,25 @@ export default function ReplayPage() {
     }
   }
 
+  async function loadOptionsPreview() {
+    setOptionsPreviewLoading(true);
+    setOptionsPreviewError(null);
+    try {
+      setOptionsPreview(await fetchReplayOptionsPreview());
+    } catch (err) {
+      setOptionsPreview(null);
+      setOptionsPreviewError(describeError(err));
+    } finally {
+      setOptionsPreviewLoading(false);
+    }
+  }
+
   async function loadSession() {
     setSessionError(null);
     try {
       const s = await fetchReplaySession();
       setSession(s);
+      await loadOptionsPreview();
     } catch (err) {
       // A freshly imported dataset has no Redis session yet. Start it at the
       // first candle automatically so the page never looks like the import
@@ -81,6 +101,7 @@ export default function ReplayPage() {
           const started = reset.current_index < 0 ? await advanceReplaySession() : reset;
           setSession(started);
           setSessionError(null);
+          await loadOptionsPreview();
           return;
         } catch (startErr) {
           setSession(null);
@@ -94,6 +115,7 @@ export default function ReplayPage() {
       // `GET /api/portfolio/summary` ailleurs dans l'app.
       setSession(null);
       setSessionError(err);
+      setOptionsPreview(null);
     }
   }
 
@@ -110,6 +132,7 @@ export default function ReplayPage() {
       const s = reset.current_index < 0 ? await advanceReplaySession() : reset;
       setSession(s);
       setSessionError(null);
+      await loadOptionsPreview();
     } catch (err) {
       setActionError(describeError(err));
     } finally {
@@ -124,6 +147,7 @@ export default function ReplayPage() {
       const s = await advanceReplaySession();
       setSession(s);
       setSessionError(null);
+      await loadOptionsPreview();
     } catch (err) {
       setActionError(describeError(err));
     } finally {
@@ -308,6 +332,14 @@ export default function ReplayPage() {
             </>
           )}
         </Paper>
+      )}
+
+      {!wrongContext && (
+        <ReplayOptionsPreviewCard
+          preview={optionsPreview}
+          loading={optionsPreviewLoading}
+          error={optionsPreviewError}
+        />
       )}
 
       <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 2 }}>
