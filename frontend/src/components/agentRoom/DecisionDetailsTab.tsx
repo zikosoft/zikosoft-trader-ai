@@ -232,17 +232,19 @@ export default function DecisionDetailsTab({ dense = false }: { dense?: boolean 
 
         <ChainSection title={t("decisionChain.order")} color="text.primary" present={!!data.order} dense={dense}>
           {data.order && (
-            <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", alignItems: "center" }}>
-              <Chip label={data.order.side === "buy" ? t("orderSide.buy") : t("orderSide.sell")} size="small" />
-              <Chip label={localizeValue(t, `status.${data.order.status.toUpperCase()}`, data.order.status)} size="small" variant="outlined" />
-              {data.order.notional !== null && <Typography variant="body2">{formatCurrency(locale, data.order.notional)}</Typography>}
-              {data.order.quantity !== null && <Typography variant="body2">{data.order.asset_class === "option" ? t("options.contractCount", { count: data.order.quantity }) : t("agentRoom.shares", { count: data.order.quantity })}</Typography>}
-            </Stack>
-            {data.order.option_instrument && (
-              <Box sx={{ mt: 1 }}>
-                <OptionInstrumentSummary instrument={data.order.option_instrument} dense={dense} />
-              </Box>
-            )}
+            <>
+              <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", alignItems: "center" }}>
+                <Chip label={data.order.side === "buy" ? t("orderSide.buy") : t("orderSide.sell")} size="small" />
+                <Chip label={localizeValue(t, `status.${data.order.status.toUpperCase()}`, data.order.status)} size="small" variant="outlined" />
+                {data.order.notional !== null && <Typography variant="body2">{formatCurrency(locale, data.order.notional)}</Typography>}
+                {data.order.quantity !== null && <Typography variant="body2">{data.order.asset_class === "option" ? t("options.contractCount", { count: data.order.quantity }) : t("agentRoom.shares", { count: data.order.quantity })}</Typography>}
+              </Stack>
+              {data.order.option_instrument && (
+                <Box sx={{ mt: 1 }}>
+                  <OptionInstrumentSummary instrument={data.order.option_instrument} dense={dense} />
+                </Box>
+              )}
+            </>
           )}
         </ChainSection>
       </Stack>
