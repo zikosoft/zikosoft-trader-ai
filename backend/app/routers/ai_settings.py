@@ -15,6 +15,7 @@ from ..redis_client import redis_client
 from ..schemas.ai_settings import AISettingsOut, UpdateAISettingsRequest
 from shared.ai_runtime_settings import (
     api_key_is_configured,
+    get_daily_ai_budget_status,
     get_ai_runtime_settings,
     set_ai_runtime_settings,
     set_encrypted_api_key,
@@ -45,6 +46,10 @@ def _current() -> AISettingsOut:
         defaults=_runtime_defaults(),
         daily_budget_hard_cap_usd=settings.ai_daily_budget_hard_cap_usd,
     )
+    budget_status = get_daily_ai_budget_status(
+        redis_client,
+        daily_budget_usd=float(runtime["daily_budget_usd"]),
+    )
     return AISettingsOut(
         enabled=get_ai_calls_enabled(redis_client, default=settings.ai_calls_enabled),
         max_calls_per_minute=int(runtime["max_calls_per_minute"]),
@@ -56,6 +61,7 @@ def _current() -> AISettingsOut:
         timeout_seconds=float(runtime["timeout_seconds"]),
         daily_budget_usd=float(runtime["daily_budget_usd"]),
         daily_budget_hard_cap_usd=float(settings.ai_daily_budget_hard_cap_usd),
+        **budget_status,
         api_key_configured=api_key_is_configured(
             redis_client, fallback=settings.anthropic_api_key, encryption_key=settings.app_encryption_key
         ),

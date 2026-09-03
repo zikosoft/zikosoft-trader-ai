@@ -15,11 +15,12 @@ import { useLivePolling } from "../../hooks/useLivePolling";
 import { fetchAISettings, updateAISettings, type AISettingsUpdate } from "../../api/aiSettings";
 import { describeError } from "../../api/client";
 import { useI18n } from "../../i18n/I18nContext";
+import { formatCurrency, formatDateTime } from "../../i18n/formatters";
 
 const POLL_INTERVAL_MS = 10000;
 
 export default function AiGovernanceCard() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { data: settings, refresh } = useLivePolling(fetchAISettings, POLL_INTERVAL_MS);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -131,6 +132,40 @@ export default function AiGovernanceCard() {
               lowModel: settings.low_stakes_model,
             })}
           </Typography>
+          <Stack direction={{ xs: "column", md: "row" }} spacing={1} sx={{ mb: 2 }}>
+            <Chip
+              size="small"
+              label={t("aiGovernance.budgetReserved", {
+                value: formatCurrency(locale, settings.daily_budget_reserved_usd),
+              })}
+              variant="outlined"
+            />
+            <Chip
+              size="small"
+              color={settings.daily_budget_remaining_usd > 0 ? "success" : "warning"}
+              label={t("aiGovernance.budgetRemaining", {
+                value: formatCurrency(locale, settings.daily_budget_remaining_usd),
+              })}
+              variant="outlined"
+            />
+            <Chip
+              size="small"
+              label={t("aiGovernance.budgetCallsReserved", { count: settings.daily_calls_reserved })}
+              variant="outlined"
+            />
+          </Stack>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 2 }}>
+            {t("aiGovernance.budgetResetAt", {
+              value: formatDateTime(locale, settings.daily_budget_reset_at, {
+                timeZone: "UTC",
+                dateStyle: "medium",
+                timeStyle: "short",
+              }),
+            })}
+          </Typography>
+          {settings.daily_budget_remaining_usd <= 0 && (
+            <Alert severity="warning" sx={{ mb: 2 }}>{t("aiGovernance.budgetExhausted")}</Alert>
+          )}
           <Typography variant="subtitle2" sx={{ mb: 1 }}>{t("aiGovernance.configuration")}</Typography>
           <Stack spacing={2}>
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>

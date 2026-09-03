@@ -11,6 +11,7 @@ from shared.ai_provider import (  # noqa: E402 — après importorskip, volontai
     AIProviderError,
     ModelTier,
     build_ai_provider,
+    estimate_maximum_call_cost_usd,
     get_ai_provider,
     reset_ai_provider_cache,
 )
@@ -107,6 +108,34 @@ class TestClaudeAIProviderStructuredComplete:
             with pytest.raises(AIProviderError, match="rate limit"):
                 provider.structured_complete(prompt="p", schema=SCHEMA)
             assert route.call_count == 2
+
+    def test_daily_usd_budget_blocks_second_request_before_http_call(self, redis_client):
+        """The cost cap is reserved before network I/O, not reconciled later."""
+        from datetime import UTC, datetime
+
+        from shared.ai_runtime_settings import AI_DAILY_CALL_KEY_PREFIX, AI_DAILY_COST_KEY_PREFIX
+
+        day = datetime.now(UTC).date().isoformat()
+        redis_client.delete(AI_DAILY_CALL_KEY_PREFIX + day, AI_DAILY_COST_KEY_PREFIX + day)
+        config = AIProviderConfig(daily_quota_client=redis_client, max_calls_per_day=10)
+        one_call_budget = estimate_maximum_call_cost_usd(
+            prompt="p", model=config.high_stakes_model, config=config
+        )
+        # Leave one micro-dollar margin so Decimal floor/ceiling conversion is
+        # tested as a real allowed call, not as an accidental float boundary.
+        config.daily_budget_usd = one_call_budget + 0.001
+        try:
+            with respx.mock(assert_all_called=False) as mock:
+                route = mock.post(ANTHROPIC_MESSAGES_URL).mock(
+                    return_value=httpx.Response(200, json=_tool_use_response(input_payload={"summary": "x", "confidence": 0.1}))
+                )
+                provider = build_ai_provider(api_key="fake-key", config=config)
+                provider.structured_complete(prompt="p", schema=SCHEMA)
+                with pytest.raises(AIProviderError, match="daily USD budget"):
+                    provider.structured_complete(prompt="p", schema=SCHEMA)
+                assert route.call_count == 1
+        finally:
+            redis_client.delete(AI_DAILY_CALL_KEY_PREFIX + day, AI_DAILY_COST_KEY_PREFIX + day)
 
     def test_upstream_error_normalized_to_ai_provider_error(self):
         """Toute panne réseau/HTTP doit remonter en `AIProviderError`, jamais

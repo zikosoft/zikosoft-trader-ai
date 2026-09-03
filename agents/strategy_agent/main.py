@@ -56,7 +56,7 @@ from sqlalchemy.engine import Engine
 
 from shared.ai_governance import get_ai_calls_enabled
 from shared.ai_runtime_settings import get_ai_runtime_settings, get_configured_api_key
-from shared.ai_provider import AIProvider, AIProviderConfig, get_ai_provider
+from shared.ai_provider import AIProvider, AIProviderConfig, claude_cost_controls_from_env, get_ai_provider
 from shared.eventbus import EventConsumer, publish_event
 from shared.events import EventEnvelope, Streams
 from shared.options import (
@@ -175,16 +175,23 @@ def _ai_config_from_env(redis_client=None) -> AIProviderConfig:
         "high_stakes_model": os.environ.get("AI_MODEL_HIGH_STAKES", "claude-sonnet-4-5"),
         "low_stakes_model": os.environ.get("AI_MODEL_LOW_STAKES", "claude-haiku-4-5"),
         "max_calls_per_minute": int(os.environ.get("AI_MAX_CALLS_PER_MINUTE", "30")),
-    }) if redis_client is not None else {}
+        "max_calls_per_day": int(os.environ.get("AI_MAX_CALLS_PER_DAY", "50")),
+        "temperature": float(os.environ.get("AI_TEMPERATURE", "0.2")),
+        "max_tokens": int(os.environ.get("AI_MAX_TOKENS", "1024")),
+        "timeout_seconds": float(os.environ.get("AI_TIMEOUT_SECONDS", "20")),
+        "daily_budget_usd": float(os.environ.get("AI_DAILY_BUDGET_USD", "2")),
+    }, daily_budget_hard_cap_usd=float(os.environ.get("AI_DAILY_BUDGET_HARD_CAP_USD", "10"))) if redis_client is not None else {}
     return AIProviderConfig(
         high_stakes_model=runtime.get("high_stakes_model", os.environ.get("AI_MODEL_HIGH_STAKES", "claude-sonnet-4-5")),
         low_stakes_model=runtime.get("low_stakes_model", os.environ.get("AI_MODEL_LOW_STAKES", "claude-haiku-4-5")),
         max_calls_per_minute=int(runtime.get("max_calls_per_minute", os.environ.get("AI_MAX_CALLS_PER_MINUTE", "30"))),
         max_calls_per_day=int(runtime.get("max_calls_per_day", os.environ.get("AI_MAX_CALLS_PER_DAY", "500"))),
         daily_quota_client=redis_client,
+        daily_budget_usd=float(runtime.get("daily_budget_usd", os.environ.get("AI_DAILY_BUDGET_USD", "2"))),
         timeout_seconds=float(runtime.get("timeout_seconds", 20.0)),
         temperature=float(runtime.get("temperature", 0.2)),
         max_tokens=int(runtime.get("max_tokens", 1024)),
+        **claude_cost_controls_from_env(),
     )
 
 

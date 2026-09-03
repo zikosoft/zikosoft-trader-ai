@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -18,6 +20,12 @@ class AISettingsOut(BaseModel):
     # Read-only value from deployment configuration. It has no corresponding
     # field in UpdateAISettingsRequest, so a browser can never raise it.
     daily_budget_hard_cap_usd: float
+    # Read-only accounting values. They are UTC-day reservations made before
+    # provider requests, never API-key or prompt data.
+    daily_budget_reserved_usd: float
+    daily_budget_remaining_usd: float
+    daily_calls_reserved: int
+    daily_budget_reset_at: datetime
     api_key_configured: bool
 
 

@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import abc
 import logging
+import math
+import os
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -44,6 +46,9 @@ class AIProviderConfig:
     max_calls_per_day: int = 500
     # Set by agent containers when the shared Redis daily cap is enabled.
     daily_quota_client: Any = None
+    # UI-configurable only below the deployment-owned hard cap. The provider
+    # reserves a conservative maximum cost before each Claude request.
+    daily_budget_usd: float = 2.0
     high_stakes_model: str = "claude-sonnet-4-5"
     low_stakes_model: str = "claude-haiku-4-5"
     timeout_seconds: float = 20.0
@@ -54,6 +59,75 @@ class AIProviderConfig:
     # malgré le checklist item. Corrigé ici plutôt que de laisser un champ
     # de configuration prévu mais inerte.
     max_tokens: int = 1024
+    # Deployment-tunable conservative USD rates per million tokens. They are
+    # never browser-configurable: see .env.example for the owner controls.
+    haiku_input_usd_per_million: float = 1.0
+    haiku_output_usd_per_million: float = 5.0
+    sonnet_input_usd_per_million: float = 3.0
+    sonnet_output_usd_per_million: float = 15.0
+    unknown_model_input_usd_per_million: float = 15.0
+    unknown_model_output_usd_per_million: float = 75.0
+    prompt_token_reserve_buffer: int = 2048
+
+
+def _env_float(name: str, default: float) -> float:
+    """Read a positive deployment-only price without making agents fragile."""
+    try:
+        value = float(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
+def _env_positive_int(name: str, default: int) -> int:
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
+def claude_cost_controls_from_env() -> dict[str, float | int]:
+    """Return deployment-owned maximum-cost estimation controls.
+
+    An owner can update `.env` if provider pricing changes. Browser users can
+    choose only a lower daily allowance below the deployment hard cap.
+    """
+    return {
+        "haiku_input_usd_per_million": _env_float("AI_CLAUDE_HAIKU_INPUT_USD_PER_MILLION", 1.0),
+        "haiku_output_usd_per_million": _env_float("AI_CLAUDE_HAIKU_OUTPUT_USD_PER_MILLION", 5.0),
+        "sonnet_input_usd_per_million": _env_float("AI_CLAUDE_SONNET_INPUT_USD_PER_MILLION", 3.0),
+        "sonnet_output_usd_per_million": _env_float("AI_CLAUDE_SONNET_OUTPUT_USD_PER_MILLION", 15.0),
+        "unknown_model_input_usd_per_million": _env_float("AI_CLAUDE_UNKNOWN_INPUT_USD_PER_MILLION", 15.0),
+        "unknown_model_output_usd_per_million": _env_float("AI_CLAUDE_UNKNOWN_OUTPUT_USD_PER_MILLION", 75.0),
+        "prompt_token_reserve_buffer": _env_positive_int("AI_PROMPT_TOKEN_RESERVE_BUFFER", 2048),
+    }
+
+
+def estimate_maximum_call_cost_usd(*, prompt: str, model: str, config: AIProviderConfig) -> float:
+    """Return a conservative USD upper-bound reservation for one call.
+
+    Prompt tokens are overestimated from characters and buffered for the tool
+    schema/provider overhead; output reserves the configured maximum, never
+    an optimistic observed average. This limit is checked before networking.
+    """
+    normalized_model = model.lower()
+    if "haiku" in normalized_model:
+        input_rate = config.haiku_input_usd_per_million
+        output_rate = config.haiku_output_usd_per_million
+    elif "sonnet" in normalized_model:
+        input_rate = config.sonnet_input_usd_per_million
+        output_rate = config.sonnet_output_usd_per_million
+    else:
+        input_rate = config.unknown_model_input_usd_per_million
+        output_rate = config.unknown_model_output_usd_per_million
+
+    estimated_input_tokens = max(1, math.ceil(len(prompt or "") / 3) + max(0, config.prompt_token_reserve_buffer))
+    estimated_output_tokens = max(1, config.max_tokens)
+    return (
+        (estimated_input_tokens * max(0.0, input_rate))
+        + (estimated_output_tokens * max(0.0, output_rate))
+    ) / 1_000_000
 
 
 class _RateLimiter:
@@ -97,20 +171,31 @@ class AIProvider(abc.ABC):
         désactivé, si le quota est dépassé, ou en cas d'échec après retry."""
         if not self.config.enabled:
             raise AIProviderError("AI calls disabled via Settings (interrupteur global, D026)")
-        if self.config.daily_quota_client is not None:
-            from shared.ai_runtime_settings import consume_daily_call
-
-            try:
-                allowed_today = consume_daily_call(
-                    self.config.daily_quota_client, limit=self.config.max_calls_per_day
-                )
-            except Exception as exc:  # noqa: BLE001 - safe fallback when Redis is unavailable
-                raise AIProviderError("AI daily quota is unavailable") from exc
-            if not allowed_today:
-                raise AIProviderError(f"AI daily call limit exceeded ({context_label or 'unknown'})")
         if not self._limiter.allow():
             raise AIProviderError(f"AI call rate limit exceeded ({context_label or 'unknown'})")
         model = self.config.high_stakes_model if tier == ModelTier.HIGH_STAKES else self.config.low_stakes_model
+        if self.config.daily_quota_client is not None:
+            from shared.ai_runtime_settings import reserve_daily_ai_allowance
+
+            try:
+                allowance = reserve_daily_ai_allowance(
+                    self.config.daily_quota_client,
+                    call_limit=self.config.max_calls_per_day,
+                    daily_budget_usd=self.config.daily_budget_usd,
+                    reservation_usd=estimate_maximum_call_cost_usd(
+                        prompt=prompt,
+                        model=model,
+                        config=self.config,
+                    ),
+                )
+            except Exception as exc:  # noqa: BLE001 - safe fallback when Redis is unavailable
+                raise AIProviderError("AI daily budget reservation is unavailable") from exc
+            if not allowance.allowed:
+                if allowance.reason == "daily_call_limit":
+                    raise AIProviderError(f"AI daily call limit exceeded ({context_label or 'unknown'})")
+                raise AIProviderError(
+                    f"AI daily USD budget exhausted ({context_label or 'unknown'}); safe fallback required"
+                )
         return self._call_structured(prompt=prompt, schema=schema, model=model)
 
     @abc.abstractmethod
@@ -210,7 +295,15 @@ def get_ai_provider(*, api_key: str, config: AIProviderConfig) -> AIProvider:
     provider.config.temperature = config.temperature
     provider.config.max_calls_per_day = config.max_calls_per_day
     provider.config.daily_quota_client = config.daily_quota_client
+    provider.config.daily_budget_usd = config.daily_budget_usd
     provider.config.max_tokens = config.max_tokens
+    provider.config.haiku_input_usd_per_million = config.haiku_input_usd_per_million
+    provider.config.haiku_output_usd_per_million = config.haiku_output_usd_per_million
+    provider.config.sonnet_input_usd_per_million = config.sonnet_input_usd_per_million
+    provider.config.sonnet_output_usd_per_million = config.sonnet_output_usd_per_million
+    provider.config.unknown_model_input_usd_per_million = config.unknown_model_input_usd_per_million
+    provider.config.unknown_model_output_usd_per_million = config.unknown_model_output_usd_per_million
+    provider.config.prompt_token_reserve_buffer = config.prompt_token_reserve_buffer
     if provider.config.max_calls_per_minute != config.max_calls_per_minute:
         provider.config.max_calls_per_minute = config.max_calls_per_minute
         provider._limiter.max_calls_per_minute = config.max_calls_per_minute

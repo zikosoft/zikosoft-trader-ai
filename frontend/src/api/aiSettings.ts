@@ -17,11 +17,23 @@ export type AISettings = {
   timeout_seconds: number;
   daily_budget_usd: number;
   daily_budget_hard_cap_usd: number;
+  daily_budget_reserved_usd: number;
+  daily_budget_remaining_usd: number;
+  daily_calls_reserved: number;
+  daily_budget_reset_at: string;
   api_key_configured: boolean;
 };
 
 export type AISettingsUpdate = Partial<
-  Omit<AISettings, "api_key_configured" | "daily_budget_hard_cap_usd">
+  Omit<
+    AISettings,
+    | "api_key_configured"
+    | "daily_budget_hard_cap_usd"
+    | "daily_budget_reserved_usd"
+    | "daily_budget_remaining_usd"
+    | "daily_calls_reserved"
+    | "daily_budget_reset_at"
+  >
 > & { api_key?: string };
 
 export async function fetchAISettings(): Promise<AISettings> {

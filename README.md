@@ -54,8 +54,14 @@ experience" (Historical Replay / Alpaca Paper, B06).
 non-editable deployment ceiling is `AI_DAILY_BUDGET_HARD_CAP_USD` (default:
 `10`). It lives only in `.env`: the browser can select a lower amount but the
 API rejects every attempt above this cap. Restart the services after changing
-the cap. The runtime spend-estimation stop is completed in the next hardening
-phase; until then, leave `AI_CALLS_ENABLED=false` outside a supervised demo.
+the cap. Before every Claude request, all agent processes atomically reserve a
+conservative maximum token-cost estimate plus one daily call slot in Redis.
+When either daily limit is exhausted, the provider request is not sent and the
+existing safe agent fallback is used (HOLD or deterministic explanation). The
+Settings card shows today's reserved estimate, remaining amount and the UTC
+reset time; it never exposes an API key, prompt or raw response. Owner-only
+pricing assumptions and the prompt buffer live in `.env` (see `.env.example`)
+so they can be updated if Anthropic pricing changes.
 
 ## Structure du monorepo
 

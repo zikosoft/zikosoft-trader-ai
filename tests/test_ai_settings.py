@@ -1,6 +1,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from app.config import settings
 from app.main import app
@@ -9,12 +11,17 @@ from fastapi.testclient import TestClient
 
 @pytest.fixture()
 def client(redis_client):
+    day = datetime.now(UTC).date().isoformat()
     redis_client.delete("settings:ai_calls_enabled")
     redis_client.delete("settings:ai_runtime")
+    redis_client.delete(f"settings:ai_calls:day:{day}")
+    redis_client.delete(f"settings:ai_cost_usd_micros:day:{day}")
     with TestClient(app) as c:
         yield c
     redis_client.delete("settings:ai_calls_enabled")
     redis_client.delete("settings:ai_runtime")
+    redis_client.delete(f"settings:ai_calls:day:{day}")
+    redis_client.delete(f"settings:ai_cost_usd_micros:day:{day}")
 
 
 @pytest.fixture()
@@ -44,6 +51,10 @@ def test_defaults_to_config_value_when_never_toggled(logged_in_client):
         settings.ai_daily_budget_usd, settings.ai_daily_budget_hard_cap_usd
     )
     assert body["daily_budget_hard_cap_usd"] == settings.ai_daily_budget_hard_cap_usd
+    assert body["daily_budget_reserved_usd"] == 0
+    assert body["daily_budget_remaining_usd"] == body["daily_budget_usd"]
+    assert body["daily_calls_reserved"] == 0
+    assert body["daily_budget_reset_at"].endswith("+00:00")
     assert body["api_key_configured"] is bool(settings.anthropic_api_key)
 
 
