@@ -5,6 +5,7 @@
 // mélangés (même séparation que côté backend).
 
 import { apiGet } from "./client";
+import type { OptionInstrument } from "./options";
 
 export type AgentMessage = {
   id: string;
@@ -32,6 +33,7 @@ export type DecisionChainProposal = {
   confidence: number | null;
   reasoning_text: string | null;
   risk_flags: unknown[];
+  option_instrument: OptionInstrument | null;
   created_at: string;
 };
 
@@ -55,7 +57,12 @@ export type DecisionChainExplanation = {
 
 export type DecisionChainOrder = {
   id: string;
+  symbol: string;
   side: string;
+  asset_class: string;
+  option_instrument: OptionInstrument | null;
+  order_type: string;
+  time_in_force: string;
   status: string;
   quantity: number | null;
   notional: number | null;

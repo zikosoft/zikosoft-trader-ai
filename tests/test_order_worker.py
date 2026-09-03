@@ -235,6 +235,27 @@ def _command_envelope(*, execution_context_id, user_id, risk_decision_id, strate
     )
 
 
+def _option_instrument() -> dict:
+    return {
+        "asset_class": "option",
+        "underlying_symbol": "AAPL",
+        "symbol": "AAPL260918C00200000",
+        "option_type": "call",
+        "expiration_date": "2026-09-18",
+        "strike_price": 200.0,
+        "bid_price": 3.0,
+        "ask_price": 3.1,
+        "limit_price": 3.1,
+        "contract_size": 100,
+        "quantity": 1,
+        "estimated_premium": 310.0,
+        "max_loss": 310.0,
+        "spread_pct": 0.0328,
+        "open_interest": 500,
+        "delta": 0.5,
+    }
+
+
 def _fetch_order(engine, *, client_order_id) -> dict | None:
     with engine.connect() as conn:
         row = conn.execute(text("SELECT * FROM orders WHERE client_order_id = :cid"), {"cid": client_order_id}).mappings().first()
@@ -404,6 +425,47 @@ class TestBlockedPaths:
 
 
 class TestReadyToPlace:
+    def test_option_order_persists_selected_contract_and_submits_limit_order(self, engine, redis_client):
+        ctx = _make_context(engine, kind="PAPER")
+        _make_connected_account(engine, user_id=ctx["user_id"])
+        strat_id = _make_strategy(engine, user_id=ctx["user_id"], execution_context_id=ctx["execution_context_id"])
+        risk_decision_id = _make_risk_decision(engine, execution_context_id=ctx["execution_context_id"], strategy_id=strat_id)
+        option = _option_instrument()
+        client_order_id = f"zst-{risk_decision_id}"
+        envelope = _command_envelope(
+            execution_context_id=ctx["execution_context_id"],
+            user_id=ctx["user_id"],
+            risk_decision_id=risk_decision_id,
+            strategy_id=strat_id,
+            symbol=option["symbol"],
+            asset_class="option",
+            order_type="limit",
+            reference_price=option["limit_price"],
+            quantity=1,
+            sizing_pending=False,
+            option_instrument=option,
+        )
+
+        with respx.mock(assert_all_called=True) as mock:
+            mock.post(ALPACA_ORDERS_URL).mock(
+                return_value=httpx.Response(
+                    200,
+                    headers={"x-request-id": "req-option-1"},
+                    json=_alpaca_order_response(client_order_id=client_order_id, status="accepted"),
+                )
+            )
+            order_worker._process_envelope(engine, redis_client, envelope)
+            sent_body = json.loads(mock.calls.last.request.content)
+
+        assert sent_body["symbol"] == option["symbol"]
+        assert sent_body["type"] == "limit"
+        assert sent_body["limit_price"] == "3.10"
+        assert "order_class" not in sent_body
+        order = _fetch_order(engine, client_order_id=client_order_id)
+        assert order["asset_class"] == "option"
+        assert order["option_instrument"]["underlying_symbol"] == "AAPL"
+        assert order["option_instrument"]["max_loss"] == 310.0
+
     def test_order_accepted_records_bracket_and_request_id(self, engine, redis_client):
         ctx = _make_context(engine, kind="PAPER")
         _make_connected_account(engine, user_id=ctx["user_id"])

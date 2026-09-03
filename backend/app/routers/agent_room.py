@@ -104,6 +104,7 @@ def get_decision_chain(
                 confidence=proposal.confidence,
                 reasoning_text=(proposal.reasoning or {}).get("text"),
                 risk_flags=proposal.risk_flags,
+                option_instrument=(proposal.reasoning or {}).get("option_instrument"),
                 created_at=proposal.created_at,
             )
             if proposal is not None
@@ -146,7 +147,12 @@ def get_decision_chain(
         order=(
             DecisionChainOrderOut(
                 id=order.id,
+                symbol=order.symbol,
                 side=order.side,
+                asset_class=order.asset_class,
+                option_instrument=order.option_instrument,
+                order_type=order.order_type,
+                time_in_force=order.time_in_force,
                 status=order.status,
                 quantity=float(order.quantity) if order.quantity is not None else None,
                 notional=float(order.notional) if order.notional is not None else None,

@@ -30,6 +30,30 @@ export type AssetCatalogStatus = {
   active_asset_count: number;
 };
 
+/** Read-only option-chain quote returned by Alpaca for one OCC contract. */
+export type OptionChainSnapshot = {
+  symbol: string;
+  bid_price: number | null;
+  ask_price: number | null;
+  last_trade_price: number | null;
+  bid_size: number | null;
+  ask_size: number | null;
+  implied_volatility: number | null;
+  delta: number | null;
+  gamma: number | null;
+  theta: number | null;
+  vega: number | null;
+};
+
+export type OptionChainResponse = {
+  underlying_symbol: string;
+  snapshots: OptionChainSnapshot[];
+};
+
+export type OptionSyncResult = AssetSyncResult & {
+  underlying_symbol: string;
+};
+
 export async function searchAssets(
   q: string,
   { limit = 10, tradableOnly = true }: { limit?: number; tradableOnly?: boolean } = {},
@@ -48,4 +72,21 @@ export async function fetchAssetCatalogStatus(): Promise<AssetCatalogStatus> {
 
 export async function syncAssetCatalog(): Promise<AssetSyncResult> {
   return apiPost<AssetSyncResult>("/api/assets/sync");
+}
+
+function optionUnderlyingQuery(underlyingSymbol: string): string {
+  return new URLSearchParams({ underlying_symbol: underlyingSymbol.trim().toUpperCase() }).toString();
+}
+
+/**
+ * Imports the contracts available for one underlying into the local catalog.
+ * This endpoint only discovers contracts; it never places an order.
+ */
+export async function syncOptionContracts(underlyingSymbol: string): Promise<OptionSyncResult> {
+  return apiPost<OptionSyncResult>(`/api/assets/options/sync?${optionUnderlyingQuery(underlyingSymbol)}`);
+}
+
+/** Reads the current Alpaca option-chain quotes without changing the catalog. */
+export async function fetchOptionChain(underlyingSymbol: string): Promise<OptionChainResponse> {
+  return apiGet<OptionChainResponse>(`/api/assets/options/chain?${optionUnderlyingQuery(underlyingSymbol)}`);
 }

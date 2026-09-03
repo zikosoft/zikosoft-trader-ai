@@ -5,6 +5,7 @@ import KillSwitchCard from "../components/killSwitch/KillSwitchCard";
 import AiGovernanceCard from "../components/aiGovernance/AiGovernanceCard";
 import AssetCatalogCard from "../components/assets/AssetCatalogCard";
 import ProfileCard from "../components/profile/ProfileCard";
+import OptionsDiscoveryCard from "../components/options/OptionsDiscoveryCard";
 import { useI18n } from "../i18n/I18nContext";
 
 // §B25 "Settings" (menu gauche + header) — section Compte réellement
@@ -56,6 +57,8 @@ export default function SettingsPage() {
       <AiGovernanceCard />
 
       <AssetCatalogCard />
+
+      <OptionsDiscoveryCard />
 
       <ProfileCard />
 

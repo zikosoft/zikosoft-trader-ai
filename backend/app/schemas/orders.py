@@ -14,12 +14,15 @@ import uuid
 from datetime import datetime
 
 from pydantic import BaseModel
+from shared.options import OptionInstrument
 
 
 class OrderOut(BaseModel):
     id: uuid.UUID
     symbol: str
     side: str
+    asset_class: str
+    option_instrument: OptionInstrument | None
     quantity: float | None
     notional: float | None
     order_type: str

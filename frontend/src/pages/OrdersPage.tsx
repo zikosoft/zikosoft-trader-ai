@@ -17,6 +17,7 @@ import { ApiError, describeError } from "../api/client";
 import { formatCurrency, formatDateTime } from "../i18n/formatters";
 import { useI18n } from "../i18n/I18nContext";
 import { localizeValue } from "../i18n/domain";
+import OptionInstrumentSummary from "../components/options/OptionInstrumentSummary";
 
 // §écran dédié Orders (28/08 — fermeture des liens de menu, voir
 // AVANCEMENT.md) — remplace le `PlaceholderPage` qui pointait vers le
@@ -97,6 +98,7 @@ export default function OrdersPage() {
             <TableHead>
               <TableRow>
                 <TableCell>{t("common.symbol")}</TableCell>
+                <TableCell>{t("options.contract")}</TableCell>
                 <TableCell>{t("orders.side")}</TableCell>
                 <TableCell align="right">{t("common.quantity")}</TableCell>
                 <TableCell align="right">{t("orders.notional")}</TableCell>
@@ -110,6 +112,13 @@ export default function OrdersPage() {
               {orders.map((o) => (
                 <TableRow key={o.id}>
                   <TableCell>{o.symbol}</TableCell>
+                  <TableCell>
+                    {o.option_instrument ? (
+                      <OptionInstrumentSummary instrument={o.option_instrument} dense />
+                    ) : (
+                      "—"
+                    )}
+                  </TableCell>
                   <TableCell>{o.side === "buy" ? t("orderSide.buy") : t("orderSide.sell")}</TableCell>
                   <TableCell align="right">{o.quantity ?? "—"}</TableCell>
                   <TableCell align="right">{o.notional === null ? "—" : formatCurrency(locale, o.notional)}</TableCell>

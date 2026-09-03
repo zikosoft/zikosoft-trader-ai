@@ -203,11 +203,12 @@ _INSERT_ORDER_SQL = text(
     """
     INSERT INTO orders
         (id, user_id, execution_context_id, strategy_id, risk_decision_id, symbol, side,
-         notional, quantity, order_type, time_in_force, stop_loss, take_profit, status,
+         asset_class, option_instrument, notional, quantity, order_type, time_in_force, stop_loss, take_profit, status,
          idempotency_key, client_order_id, correlation_id)
     VALUES
         (:id, :user_id, :execution_context_id, :strategy_id, :risk_decision_id, :symbol, :side,
-         :notional, :quantity, :order_type, :time_in_force, CAST(:stop_loss AS jsonb), CAST(:take_profit AS jsonb), :status,
+         :asset_class, CAST(:option_instrument AS jsonb), :notional, :quantity, :order_type, :time_in_force,
+         CAST(:stop_loss AS jsonb), CAST(:take_profit AS jsonb), :status,
          :idempotency_key, :client_order_id, :correlation_id)
     """
 )
@@ -361,6 +362,13 @@ def _round_price(value: float) -> str:
     return f"{value:.2f}"
 
 
+def _serialized_option_instrument(command: OrderCommand) -> str | None:
+    """Serialize only the already-validated contract carried by the command."""
+    if command.option_instrument is None:
+        return None
+    return json.dumps(command.option_instrument.model_dump(mode="json"))
+
+
 def _build_bracket_legs(command: OrderCommand) -> tuple[str | None, dict | None, dict | None]:
     """Retourne `(order_class, take_profit_leg, stop_loss_leg)` à partir de
     `reference_price`/`stop_loss_pct`/`take_profit_pct` — jamais l'inverse.
@@ -472,6 +480,8 @@ def _process_blocked(
                     "risk_decision_id": command.risk_decision_id,
                     "symbol": command.symbol,
                     "side": command.side,
+                    "asset_class": command.asset_class,
+                    "option_instrument": _serialized_option_instrument(command),
                     "notional": command.notional,
                     "quantity": command.quantity,
                     "order_type": command.order_type,
@@ -542,6 +552,8 @@ def _process_ready_to_place(
                     "risk_decision_id": command.risk_decision_id,
                     "symbol": command.symbol,
                     "side": command.side,
+                    "asset_class": command.asset_class,
+                    "option_instrument": _serialized_option_instrument(command),
                     "notional": command.notional,
                     "quantity": command.quantity,
                     "order_type": command.order_type,

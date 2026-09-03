@@ -4,6 +4,7 @@
 // depuis B25, "backend prêt B17 UI à venir"), juste le widget dashboard.
 
 import { apiGet } from "./client";
+import type { OptionInstrument } from "./options";
 
 export type OrderSide = "buy" | "sell";
 
@@ -11,6 +12,8 @@ export type RecentOrder = {
   id: string;
   symbol: string;
   side: OrderSide;
+  asset_class: string;
+  option_instrument: OptionInstrument | null;
   quantity: number | null;
   notional: number | null;
   order_type: string;

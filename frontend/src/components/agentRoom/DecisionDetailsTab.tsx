@@ -6,6 +6,7 @@ import { agentColor } from "./agentMeta";
 import { formatCurrency, formatDateTime } from "../../i18n/formatters";
 import { useI18n } from "../../i18n/I18nContext";
 import { localizeValue } from "../../i18n/domain";
+import OptionInstrumentSummary from "../options/OptionInstrumentSummary";
 
 // §B28 "Decision Details" (checklist "lien stratégie/risque/ordre") —
 // reconstitue la chaîne PROPOSAL → CRITIQUE → décision Risk Engine →
@@ -70,6 +71,7 @@ function ChainSection({
   dense: boolean;
   children?: React.ReactNode;
 }) {
+  const { t } = useI18n();
   return (
     <Paper variant="outlined" sx={{ p: dense ? 1 : 1.5, opacity: present ? 1 : 0.6 }}>
       <Typography variant={dense ? "caption" : "subtitle2"} sx={{ color, fontWeight: 700 }}>
@@ -79,7 +81,7 @@ function ChainSection({
         <Box sx={{ mt: 0.5 }}>{children}</Box>
       ) : (
         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-          En attente…
+          {t("status.PENDING")}…
         </Typography>
       )}
     </Paper>
@@ -151,6 +153,11 @@ export default function DecisionDetailsTab({ dense = false }: { dense?: boolean 
                 <Typography variant="body2" sx={{ mt: 0.5 }}>
                   {data.proposal.reasoning_text}
                 </Typography>
+              )}
+              {data.proposal.option_instrument && (
+                <Box sx={{ mt: 1 }}>
+                  <OptionInstrumentSummary instrument={data.proposal.option_instrument} dense={dense} />
+                </Box>
               )}
             </>
           )}
@@ -229,8 +236,13 @@ export default function DecisionDetailsTab({ dense = false }: { dense?: boolean 
               <Chip label={data.order.side === "buy" ? t("orderSide.buy") : t("orderSide.sell")} size="small" />
               <Chip label={localizeValue(t, `status.${data.order.status.toUpperCase()}`, data.order.status)} size="small" variant="outlined" />
               {data.order.notional !== null && <Typography variant="body2">{formatCurrency(locale, data.order.notional)}</Typography>}
-              {data.order.quantity !== null && <Typography variant="body2">{t("agentRoom.shares", { count: data.order.quantity })}</Typography>}
+              {data.order.quantity !== null && <Typography variant="body2">{data.order.asset_class === "option" ? t("options.contractCount", { count: data.order.quantity }) : t("agentRoom.shares", { count: data.order.quantity })}</Typography>}
             </Stack>
+            {data.order.option_instrument && (
+              <Box sx={{ mt: 1 }}>
+                <OptionInstrumentSummary instrument={data.order.option_instrument} dense={dense} />
+              </Box>
+            )}
           )}
         </ChainSection>
       </Stack>

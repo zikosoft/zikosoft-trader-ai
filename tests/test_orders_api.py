@@ -85,6 +85,9 @@ def _insert_order(
     status: str = "filled",
     quantity: float | None = 10.0,
     notional: float | None = None,
+    asset_class: str = "equity",
+    option_instrument: dict | None = None,
+    order_type: str = "market",
     created_at: datetime | None = None,
 ) -> uuid.UUID:
     order_id = uuid.uuid4()
@@ -93,9 +96,9 @@ def _insert_order(
         conn.execute(
             text(
                 "INSERT INTO orders "
-                "(id, user_id, execution_context_id, symbol, side, notional, quantity, order_type, "
+                "(id, user_id, execution_context_id, symbol, side, asset_class, option_instrument, notional, quantity, order_type, "
                 " time_in_force, status, idempotency_key, client_order_id, correlation_id, created_at, updated_at) "
-                "VALUES (:id, :user_id, :ctx_id, :symbol, :side, :notional, :quantity, 'market', "
+                "VALUES (:id, :user_id, :ctx_id, :symbol, :side, :asset_class, CAST(:option_instrument AS jsonb), :notional, :quantity, :order_type, "
                 " 'day', :status, :idem_key, :client_order_id, :correlation_id, :created_at, :created_at)"
             ),
             {
@@ -104,8 +107,11 @@ def _insert_order(
                 "ctx_id": execution_context_id,
                 "symbol": symbol,
                 "side": side,
+                "asset_class": asset_class,
+                "option_instrument": json.dumps(option_instrument) if option_instrument else None,
                 "notional": notional,
                 "quantity": quantity,
+                "order_type": order_type,
                 "status": status,
                 "idem_key": f"test-{unique}",
                 "client_order_id": f"test-client-{unique}",
@@ -187,3 +193,38 @@ class TestRecentOrders:
         assert order["status"] == "filled"
         assert order["quantity"] == 10.0
         assert order["notional"] is None
+
+    def test_option_contract_is_returned_for_paper_order(self, paper_client, demo_user_id, paper_context_id):
+        option = {
+            "asset_class": "option",
+            "underlying_symbol": "AAPL",
+            "symbol": "AAPL260918C00200000",
+            "option_type": "call",
+            "expiration_date": "2026-09-18",
+            "strike_price": 200.0,
+            "bid_price": 3.0,
+            "ask_price": 3.1,
+            "limit_price": 3.1,
+            "contract_size": 100,
+            "quantity": 1,
+            "estimated_premium": 310.0,
+            "max_loss": 310.0,
+            "spread_pct": 0.0328,
+            "open_interest": 500,
+            "delta": 0.5,
+        }
+        _insert_order(
+            user_id=demo_user_id,
+            execution_context_id=paper_context_id,
+            symbol=option["symbol"],
+            quantity=1.0,
+            asset_class="option",
+            option_instrument=option,
+            order_type="limit",
+        )
+        response = paper_client.get("/api/orders/recent")
+        assert response.status_code == 200
+        order = response.json()["orders"][0]
+        assert order["asset_class"] == "option"
+        assert order["option_instrument"]["underlying_symbol"] == "AAPL"
+        assert order["option_instrument"]["max_loss"] == 310.0

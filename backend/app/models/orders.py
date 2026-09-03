@@ -32,6 +32,11 @@ class Order(Base, TimestampMixin, UserOwnedMixin, ExecutionContextMixin):
     )
     symbol: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     side: Mapped[str] = mapped_column(String(10), nullable=False)  # buy | sell
+    # The OCC option symbol remains in ``symbol``.  These two fields retain
+    # the full selected contract so the Orders screen and Agent Room can
+    # prove that a Paper order used an option rather than an equity fallback.
+    asset_class: Mapped[str] = mapped_column(String(20), nullable=False, default="equity")
+    option_instrument: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     notional: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)
     quantity: Mapped[float | None] = mapped_column(Numeric(18, 8), nullable=True)
     order_type: Mapped[str] = mapped_column(String(20), nullable=False, default="market")

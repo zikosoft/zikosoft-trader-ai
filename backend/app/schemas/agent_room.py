@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime
 
 from pydantic import BaseModel
+from shared.options import OptionInstrument
 
 
 class AgentMessageOut(BaseModel):
@@ -31,6 +32,7 @@ class DecisionChainProposalOut(BaseModel):
     confidence: int | None
     reasoning_text: str | None
     risk_flags: list
+    option_instrument: OptionInstrument | None
     created_at: datetime
 
 
@@ -61,7 +63,12 @@ class DecisionChainExplanationOut(BaseModel):
 
 class DecisionChainOrderOut(BaseModel):
     id: uuid.UUID
+    symbol: str
     side: str
+    asset_class: str
+    option_instrument: OptionInstrument | None
+    order_type: str
+    time_in_force: str
     status: str
     quantity: float | None
     notional: float | None
