@@ -36,6 +36,7 @@ from .routers.alerts import router as alerts_router
 from .routers.assets import router as assets_router
 from .routers.auth import router as auth_router
 from .routers.context import router as context_router
+from .routers.demo_readiness import router as demo_readiness_router
 from .routers.kill_switch import router as kill_switch_router
 from .routers.market import router as market_router
 from .routers.onboarding import router as onboarding_router
@@ -130,6 +131,7 @@ app = FastAPI(title="ZikosoftTrader AI — backend-api", version="0.1.0", lifesp
 app.include_router(auth_router)
 app.include_router(context_router)
 app.include_router(onboarding_router)
+app.include_router(demo_readiness_router)
 app.include_router(ai_settings_router)
 app.include_router(strategies_router)
 app.include_router(strategy_instances_router)

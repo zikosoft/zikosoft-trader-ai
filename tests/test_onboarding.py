@@ -310,3 +310,63 @@ def test_portfolio_snapshot_written_with_paper_execution_context(logged_in_clien
         ).one()
     assert row.kind == "PAPER"
     assert float(row.cash) == 98765.43
+
+
+def test_demo_readiness_requires_authentication(client):
+    assert client.get("/api/demo-readiness").status_code == 401
+    assert client.post("/api/demo-readiness/paper-preflight").status_code == 401
+
+
+def test_demo_readiness_honestly_reports_unconfigured_paper_account(logged_in_client):
+    response = logged_in_client.get("/api/demo-readiness")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["account_configured"] is False
+    assert body["account_connected"] is False
+    assert body["paper_connection_status"] == "NOT_CONFIGURED"
+    assert body["mcp_session_status"] == "NOT_STARTED"
+    assert body["active_option_contract_count"] == 0
+    assert body["ready_for_paper_demo"] is False
+    assert body["non_transactional"] is True
+
+
+def test_paper_preflight_only_reads_account_and_never_sends_an_order(logged_in_client):
+    """Regression proof for the Settings test button: no order route exists."""
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get(ALPACA_ACCOUNT_URL).mock(return_value=httpx.Response(200, json=_account_response()))
+        mock.get(ALPACA_ASSETS_URL).mock(return_value=httpx.Response(200, json=_assets_response()))
+        connected = logged_in_client.post(
+            "/api/onboarding/connect", json={"api_key": "AK-PREFLIGHT-MARKER", "secret_key": "SK-PREFLIGHT-MARKER"}
+        )
+    assert connected.json()["account"]["status"] == "connected"
+
+    with respx.mock(assert_all_called=True) as mock:
+        account_route = mock.get(ALPACA_ACCOUNT_URL).mock(
+            return_value=httpx.Response(200, json=_account_response())
+        )
+        response = logged_in_client.post("/api/demo-readiness/paper-preflight")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["paper_connection_status"] == "VERIFIED"
+    assert body["paper_connection_checked_at"] is not None
+    assert body["non_transactional"] is True
+    assert account_route.call_count == 1
+    assert account_route.calls[0].request.method == "GET"
+    assert "AK-PREFLIGHT-MARKER" not in response.text
+    assert "SK-PREFLIGHT-MARKER" not in response.text
+
+
+def test_paper_preflight_returns_sanitized_auth_failure_without_sending_an_order(logged_in_client):
+    with respx.mock(assert_all_called=False) as mock:
+        mock.get(ALPACA_ACCOUNT_URL).mock(return_value=httpx.Response(200, json=_account_response()))
+        mock.get(ALPACA_ASSETS_URL).mock(return_value=httpx.Response(200, json=_assets_response()))
+        logged_in_client.post("/api/onboarding/connect", json={"api_key": "AKGOOD", "secret_key": "SKGOOD"})
+
+    with respx.mock(assert_all_called=True) as mock:
+        account_route = mock.get(ALPACA_ACCOUNT_URL).mock(return_value=httpx.Response(401, json={}))
+        response = logged_in_client.post("/api/demo-readiness/paper-preflight")
+
+    assert response.status_code == 200
+    assert response.json()["paper_connection_status"] == "AUTH_FAILED"
+    assert account_route.call_count == 1

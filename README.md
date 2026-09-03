@@ -63,6 +63,15 @@ reset time; it never exposes an API key, prompt or raw response. Owner-only
 pricing assumptions and the prompt buffer live in `.env` (see `.env.example`)
 so they can be updated if Anthropic pricing changes.
 
+### Paper demo preflight
+
+Settings includes a **Paper demo readiness** card for the final hackathon
+walkthrough. It checks the existing encrypted Paper account, the fixed Paper
+endpoint, MCP-session health, the local option-contract catalogue and the
+trading kill switch. Its optional connection check performs only Alpaca's
+read-only `GET /v2/account`; it accepts no credentials from the browser and
+cannot create, modify or cancel an order.
+
 ## Structure du monorepo
 
 ```text
