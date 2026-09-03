@@ -72,6 +72,21 @@ trading kill switch. Its optional connection check performs only Alpaca's
 read-only `GET /v2/account`; it accepts no credentials from the browser and
 cannot create, modify or cancel an order.
 
+### Ask Ziko (read-only decision explainer)
+
+The Agent Room **Ask Ziko** tab is bound to the decision selected from Live
+debate. The browser sends only a short question and the stable decision-window
+key; the API re-reads the active context's persisted decision chain and never
+accepts a client-provided trading record. Ask Ziko has no MCP, Alpaca, order,
+or credential access and cannot create, modify, simulate, or cancel a trade.
+
+When Claude is available, one question makes at most one structured,
+low-stakes `claude-haiku-4-5` request with an endpoint-owned maximum of 512
+output tokens. It participates in the same atomic daily call/USD reservation
+as the agents. With no configured key, disabled AI, a failed provider call, or
+an exhausted allowance, it displays a local decision-record explanation
+instead; no Claude request is made in that fallback path.
+
 ## Structure du monorepo
 
 ```text

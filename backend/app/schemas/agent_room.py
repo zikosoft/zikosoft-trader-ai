@@ -5,8 +5,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from shared.options import OptionInstrument
 
 
@@ -87,3 +88,30 @@ class DecisionChainResponse(BaseModel):
     risk_decision: DecisionChainRiskDecisionOut | None
     explanation: DecisionChainExplanationOut | None
     order: DecisionChainOrderOut | None
+
+
+class AskZikoRequest(BaseModel):
+    """A question constrained to the Agent Room decision-window key."""
+
+    strategy_id: uuid.UUID
+    symbol: str = Field(min_length=1, max_length=20)
+    market_data_timestamp: str = Field(min_length=1, max_length=64)
+    question: str = Field(min_length=3, max_length=600)
+    # The locale is presentation preference only, never an authorization
+    # choice. Keeping it enumerated prevents a free-form prompt field.
+    locale: Literal["en", "fr", "pt", "es", "de"] = "en"
+
+    @field_validator("symbol", "market_data_timestamp", "question")
+    @classmethod
+    def _non_blank_text(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("must not be blank")
+        return cleaned
+
+
+class AskZikoResponse(BaseModel):
+    answer: str
+    source: Literal["claude", "deterministic"]
+    decision_available: bool
+    readonly: Literal[True] = True

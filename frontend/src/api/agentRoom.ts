@@ -4,7 +4,7 @@
 // sont deux besoins de lecture distincts, deux endpoints distincts, jamais
 // mélangés (même séparation que côté backend).
 
-import { apiGet } from "./client";
+import { apiGet, apiPost } from "./client";
 import type { OptionInstrument } from "./options";
 
 export type AgentMessage = {
@@ -85,6 +85,13 @@ export type DecisionChainResponse = {
   order: DecisionChainOrder | null;
 };
 
+export type AskZikoResponse = {
+  answer: string;
+  source: "claude" | "deterministic";
+  decision_available: boolean;
+  readonly: true;
+};
+
 export async function fetchAgentMessages(limit = 100): Promise<AgentMessagesResponse> {
   return apiGet<AgentMessagesResponse>(`/api/agents/room/messages?limit=${limit}`);
 }
@@ -100,4 +107,23 @@ export async function fetchDecisionChain(
     market_data_timestamp: marketDataTimestamp,
   });
   return apiGet<DecisionChainResponse>(`/api/agents/room/decision-chain?${params.toString()}`);
+}
+
+// Ask Ziko is intentionally bound to the same decision-window key as the
+// Decision Details tab. The browser never sends a decision record: the API
+// re-reads only the active context's persisted chain before explaining it.
+export async function askZikoAboutDecision(input: {
+  strategyId: string;
+  symbol: string;
+  marketDataTimestamp: string;
+  question: string;
+  locale: "en" | "fr" | "pt" | "es" | "de";
+}): Promise<AskZikoResponse> {
+  return apiPost<AskZikoResponse>("/api/agents/room/ask-ziko", {
+    strategy_id: input.strategyId,
+    symbol: input.symbol,
+    market_data_timestamp: input.marketDataTimestamp,
+    question: input.question,
+    locale: input.locale,
+  });
 }

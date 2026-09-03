@@ -8,6 +8,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import get_current_user
+from ..ai_runtime import runtime_defaults
 from ..config import settings
 from ..encryption import EncryptionKeyMissing, encrypt_secret
 from ..models import User
@@ -24,26 +25,12 @@ from shared.ai_runtime_settings import (
 router = APIRouter(prefix="/api/settings/ai", tags=["settings"])
 
 
-def _runtime_defaults() -> dict[str, object]:
-    """Bootstrap values only; UI changes remain in Redis after first save."""
-    return {
-        "max_calls_per_minute": settings.ai_max_calls_per_minute,
-        "max_calls_per_day": settings.ai_max_calls_per_day,
-        "high_stakes_model": settings.ai_model_high_stakes,
-        "low_stakes_model": settings.ai_model_low_stakes,
-        "temperature": settings.ai_temperature,
-        "max_tokens": settings.ai_max_tokens,
-        "timeout_seconds": settings.ai_timeout_seconds,
-        "daily_budget_usd": settings.ai_daily_budget_usd,
-    }
-
-
 def _current() -> AISettingsOut:
     from shared.ai_governance import get_ai_calls_enabled
 
     runtime = get_ai_runtime_settings(
         redis_client,
-        defaults=_runtime_defaults(),
+        defaults=runtime_defaults(),
         daily_budget_hard_cap_usd=settings.ai_daily_budget_hard_cap_usd,
     )
     budget_status = get_daily_ai_budget_status(
@@ -103,7 +90,7 @@ def update_ai_settings(
         set_ai_runtime_settings(
             redis_client,
             values,
-            defaults=_runtime_defaults(),
+            defaults=runtime_defaults(),
             daily_budget_hard_cap_usd=settings.ai_daily_budget_hard_cap_usd,
         )
     if api_key is not None:

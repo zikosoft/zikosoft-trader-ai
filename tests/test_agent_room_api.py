@@ -542,3 +542,55 @@ class TestDecisionChain:
         )
         assert response.status_code == 200
         assert response.json()["proposal"] is None
+
+
+class TestAskZiko:
+    def test_requires_authentication(self, client):
+        response = client.post(
+            "/api/agents/room/ask-ziko",
+            json={
+                "strategy_id": str(uuid.uuid4()),
+                "symbol": "AAPL",
+                "market_data_timestamp": "2026-09-03T10:00:00+00:00",
+                "question": "Why was this decision made?",
+                "locale": "en",
+            },
+        )
+        assert response.status_code == 401
+
+    def test_explains_only_the_selected_persisted_chain_without_writing_an_order(
+        self, paper_client, demo_user_id, paper_context_id, monkeypatch
+    ):
+        # Force local fallback so this integration test proves the route's
+        # decision scoping without network/Claude credentials.
+        monkeypatch.setattr("app.routers.agent_room.get_readonly_ai_provider", lambda *_args, **_kwargs: None)
+        strategy_id = _make_strategy(user_id=demo_user_id, execution_context_id=paper_context_id)
+        timestamp = datetime.now(UTC).isoformat()
+        _insert_agent_decision(
+            execution_context_id=paper_context_id,
+            strategy_id=strategy_id,
+            decision_type="PROPOSAL",
+            outcome="BUY",
+            reasoning={"text": "Configured RSI threshold crossed.", "symbol": "AAPL"},
+            market_data_timestamp=timestamp,
+        )
+
+        response = paper_client.post(
+            "/api/agents/room/ask-ziko",
+            json={
+                "strategy_id": str(strategy_id),
+                "symbol": "AAPL",
+                "market_data_timestamp": timestamp,
+                "question": "Why is the proposal BUY?",
+                "locale": "en",
+            },
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["readonly"] is True
+        assert body["source"] == "deterministic"
+        assert body["decision_available"] is True
+        assert "RSI threshold crossed" in body["answer"]
+        with engine.connect() as conn:
+            assert conn.execute(text("SELECT count(*) FROM orders")).scalar_one() == 0

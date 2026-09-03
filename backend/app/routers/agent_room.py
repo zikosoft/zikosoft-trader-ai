@@ -14,12 +14,17 @@ from sqlalchemy.orm import Session
 from shared.errors import ErrorCode
 
 from .. import agent_room as service
+from ..ai_runtime import get_readonly_ai_provider
+from ..ask_ziko import MAX_ASK_ZIKO_OUTPUT_TOKENS, answer_decision_question
 from ..api_errors import api_error_response
 from ..auth import get_current_user
 from ..context import active_context, ensure_user_contexts
 from ..db import get_db
 from ..models import User
+from ..redis_client import redis_client
 from ..schemas.agent_room import (
+    AskZikoRequest,
+    AskZikoResponse,
     AgentMessageOut,
     AgentMessagesResponse,
     DecisionChainCritiqueOut,
@@ -163,3 +168,37 @@ def get_decision_chain(
             else None
         ),
     )
+
+
+@router.post("/ask-ziko", response_model=AskZikoResponse)
+def ask_ziko(
+    payload: AskZikoRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> AskZikoResponse | JSONResponse:
+    """Explain one selected decision without touching MCP, Alpaca, or orders.
+
+    The route looks up the decision through the same active-context scoped
+    query as Decision Details.  It deliberately never accepts a decision
+    record from the browser, therefore a question cannot be used to make the
+    explainer inspect a different account/context.
+    """
+    try:
+        context_id = _require_active_context_id(db, user)
+    except _NoActiveContext:
+        return _no_active_context_error()
+
+    chain = service.get_decision_chain(
+        db,
+        execution_context_id=context_id,
+        strategy_id=payload.strategy_id,
+        symbol=payload.symbol.upper(),
+        market_data_timestamp=payload.market_data_timestamp,
+    )
+    result = answer_decision_question(
+        chain=chain,
+        question=payload.question,
+        locale=payload.locale,
+        provider=get_readonly_ai_provider(redis_client, max_tokens=MAX_ASK_ZIKO_OUTPUT_TOKENS),
+    )
+    return AskZikoResponse(**result)
