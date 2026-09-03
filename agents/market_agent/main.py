@@ -70,20 +70,22 @@ MAX_EVIDENCE_AGE_SECONDS = 15 * 60  # §B10 "Rejeter les données trop anciennes
 MAX_NEWS_ITEMS = 5
 MAX_NEWS_HEADLINE_CHARS = 200
 
-# §B13 — timeframes de bougies collectées à chaque tick pour le watchlist.
-# Volontairement réduit à un seul timeframe par défaut (coût en appels MCP :
-# len(DEMO_WATCHLIST) x len(timeframes) appels `get_stock_bars` par tick, en
-# plus des appels déjà existants) — "1Day" couvre le profil "beginner" de
-# `moving_average_crossover` (seule stratégie livrée à ce jour, B12).
-# Limite honnête : tant que B09 (catalogue/watchlist réels) n'existe pas, le
-# Market Agent ne peut pas savoir quels timeframes les stratégies actives
-# demandent réellement (`StrategyDefinition.required_market_data`) — ce
-# réglage reste un espace réservé configurable, pas une lecture dynamique
-# des besoins des stratégies actives.
+# Timeframes de secours lorsqu'aucune stratégie Paper n'est active. Dès
+# qu'une stratégie est lancée, le Market Agent lit ses timeframes demandés
+# dans PostgreSQL : l'UI peut donc réellement lancer un test 5Min/15Min sans
+# exiger une variable d'environnement ni un redémarrage du conteneur.
+# Cela évite aussi de collecter les cinq granularités pour chaque tick quand
+# une seule stratégie a besoin de 5Min.
 BARS_TIMEFRAMES: tuple[str, ...] = tuple(
     t.strip() for t in os.environ.get("MARKET_AGENT_BARS_TIMEFRAMES", "1Day").split(",") if t.strip()
 )
 BARS_LOOKBACK = int(os.environ.get("MARKET_AGENT_BARS_LOOKBACK", "100"))
+SUPPORTED_BARS_TIMEFRAMES = frozenset({"1Min", "5Min", "15Min", "1Hour", "1Day"})
+# The AI strategy, Risk Critic and Explanation agents already provide the
+# visible Claude debate. This background market summary is not displayed or
+# consumed by a downstream decision, so it is opt-in rather than silently
+# spending the daily Claude allowance on every market-data tick.
+MARKET_AGENT_AI_SUMMARY_ENABLED = os.environ.get("MARKET_AGENT_AI_SUMMARY_ENABLED", "false").lower() == "true"
 
 ANALYSIS_SCHEMA = {
     "type": "object",
@@ -124,6 +126,42 @@ def _paper_execution_context_id(engine: Engine, user_id: uuid.UUID) -> uuid.UUID
     with engine.connect() as conn:
         row = conn.execute(query, {"user_id": user_id}).first()
     return row[0] if row else None
+
+
+def _requested_timeframes(engine: Engine, execution_context_id: uuid.UUID) -> tuple[str, ...]:
+    """Return only the candle granularities required by active strategies.
+
+    The original demo collected ``1Day`` unconditionally while the strategy
+    form exposed 1Min/5Min/15Min/1Hour. A 5Min strategy could therefore never
+    receive any bars. This query keeps the MCP ownership in Market Agent but
+    makes the advertised timeframes functional. Invalid legacy JSON values are
+    ignored and the safe environment fallback remains available.
+    """
+    query = text(
+        """
+        SELECT parameters
+        FROM strategies
+        WHERE execution_context_id = :execution_context_id AND status = 'ACTIVE'
+        """
+    )
+    with engine.connect() as conn:
+        rows = conn.execute(query, {"execution_context_id": execution_context_id}).mappings().all()
+
+    requested: list[str] = []
+    for row in rows:
+        params = row.get("parameters")
+        if isinstance(params, str):
+            try:
+                params = json.loads(params)
+            except json.JSONDecodeError:
+                params = None
+        timeframe = params.get("timeframe") if isinstance(params, dict) else None
+        if isinstance(timeframe, str) and timeframe in SUPPORTED_BARS_TIMEFRAMES and timeframe not in requested:
+            requested.append(timeframe)
+
+    if requested:
+        return tuple(requested)
+    return tuple(timeframe for timeframe in BARS_TIMEFRAMES if timeframe in SUPPORTED_BARS_TIMEFRAMES) or ("1Day",)
 
 
 def _ensure_manager(account_id: uuid.UUID, api_key: str, secret_key: str) -> McpSessionManager:
@@ -355,7 +393,7 @@ def _persist_quote(engine: Engine, *, symbol: str, raw: Any) -> None:
         )
 
 
-def _gather_evidence(manager: McpSessionManager) -> dict:
+def _gather_evidence(manager: McpSessionManager, *, timeframes: tuple[str, ...] = BARS_TIMEFRAMES) -> dict:
     """§B10 fonctions agent : état du marché/calendrier, quote/snapshot,
     actualités, horodatage. §B13 : bougies OHLCV par symbole/timeframe
     (`BARS_TIMEFRAMES`), ajoutées quand la construction du Strategy Agent a
@@ -384,7 +422,7 @@ def _gather_evidence(manager: McpSessionManager) -> dict:
             evidence["errors"].append(f"get_stock_snapshot({symbol}): {exc}")
 
         evidence["bars"][symbol] = {}
-        for timeframe in BARS_TIMEFRAMES:
+        for timeframe in timeframes:
             try:
                 raw_bars = manager.call_tool(
                     "get_stock_bars", {"symbol": symbol, "timeframe": timeframe, "limit": BARS_LOOKBACK}
@@ -566,8 +604,20 @@ def tick(engine: Engine, redis_client: redis.Redis) -> None:
             logger.info("account %s: session MCP pas encore prête (%s)", account_id, health.status)
             continue
 
-        evidence = _gather_evidence(manager)
-        ai_summary = _summarize_with_ai(evidence, redis_client)
+        # Determine the execution context before collecting bars so the MCP
+        # requests match the active strategy configuration (not a hard-coded
+        # 1Day demo default). There is no useful analysis to run without the
+        # PAPER context that will consume the resulting event.
+        context_id = _paper_execution_context_id(engine, account["user_id"])
+        if context_id is None:
+            logger.warning("account %s: aucun contexte PAPER trouvé, événement non publié", account_id)
+            continue
+
+        evidence = _gather_evidence(
+            manager,
+            timeframes=_requested_timeframes(engine, context_id),
+        )
+        ai_summary = _summarize_with_ai(evidence, redis_client) if MARKET_AGENT_AI_SUMMARY_ENABLED else None
 
         # §B27 — persistance des bougies/cotations déjà collectées ci-dessus
         # pour ce compte, indépendamment de la publication de l'événement
@@ -583,11 +633,6 @@ def tick(engine: Engine, redis_client: redis.Redis) -> None:
                 _persist_quote(engine, symbol=symbol, raw=snapshot)
         except Exception:  # noqa: BLE001 — voir commentaire ci-dessus
             logger.exception("account %s: échec d'écriture des données de marché (B27)", account_id)
-
-        context_id = _paper_execution_context_id(engine, account["user_id"])
-        if context_id is None:
-            logger.warning("account %s: aucun contexte PAPER trouvé, événement non publié", account_id)
-            continue
 
         # §B10 sécurité "Rejeter les données trop anciennes" — comparé aux
         # horodatages RÉELS trouvés dans les réponses d'outils, jamais à

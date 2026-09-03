@@ -144,13 +144,21 @@ function AppShellInner({ user, contextState, onContextChanged, onLogout }: Props
   // modes non-compact convergent vers la même feuille du bas sur mobile.
   const mobileSheetActive = roomOpen && roomMode !== "compact" && isMobile;
 
-  // Leaving the dedicated Agent Room route must not leave a fullscreen
-  // overlay covering the next page. Keep the room open as the small launcher
-  // requested by the UX, so the conversation remains available without
-  // blocking navigation. Returning to /agent-room opens fullscreen again via
-  // AgentRoomPage.
+  // Leaving the dedicated Agent Room route must not leave the route-opened
+  // fullscreen overlay covering the next page. This must run only on the
+  // actual route transition: the previous implementation also reacted to a
+  // manual mode change on another page, immediately turning a user-selected
+  // docked/fullscreen panel back into compact mode.
+  const previousPathRef = useRef(location.pathname);
   useEffect(() => {
-    if (location.pathname !== "/agent-room" && roomOpen && roomMode !== "compact") {
+    const previousPath = previousPathRef.current;
+    previousPathRef.current = location.pathname;
+    if (
+      previousPath === "/agent-room" &&
+      location.pathname !== "/agent-room" &&
+      roomOpen &&
+      roomMode !== "compact"
+    ) {
       setMode("compact");
     }
   }, [location.pathname, roomOpen, roomMode, setMode]);

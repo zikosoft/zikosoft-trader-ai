@@ -52,18 +52,9 @@ export type StrategyDefinition = {
 
 export type StrategyInstanceStatus = "DRAFT" | "READY" | "ACTIVE" | "PAUSED" | "STOPPED" | "ERROR";
 
-export type StrategyInstance = {
-  id: string;
-  type_code: string;
-  name: string;
-  symbols: string[];
-  status: StrategyInstanceStatus;
-  latest_signal: string | null;
-};
-
-// Forme complète renvoyée par `POST`/`PATCH`/`GET /{id}` — utilisée
-// uniquement là où les paramètres/risk_configuration sont nécessaires
-// (`StrategyInstance` allégé ci-dessus reste suffisant pour la liste).
+// The list endpoint returns this complete shape as well. Keeping a single
+// type makes the strategy editor safe: it always receives the actual saved
+// parameters instead of reconstructing defaults in the browser.
 export type StrategyInstanceDetail = {
   id: string;
   strategy_definition_id: string;
@@ -82,6 +73,8 @@ export type StrategyInstanceDetail = {
   created_at: string;
   updated_at: string;
 };
+
+export type StrategyInstance = StrategyInstanceDetail;
 
 export type CreateStrategyInstanceRequest = {
   type_code: string;

@@ -45,7 +45,7 @@ import os
 import re
 import socket
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import redis
@@ -94,12 +94,35 @@ _TYPE_CODE_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 _ACTIVE_STRATEGIES_SQL = text(
     """
     SELECT s.id AS strategy_id, s.definition_version, s.parameters, s.symbols, s.status,
-           s.user_id, sd.type_code, sd.manifest
+           s.user_id, s.last_evaluated_at, s.next_evaluation_at, sd.type_code, sd.manifest
     FROM strategies s
     JOIN strategy_definitions sd ON sd.id = s.strategy_definition_id
     WHERE s.execution_context_id = :execution_context_id AND s.status = 'ACTIVE'
     """
 )
+
+_MARK_EVALUATED_SQL = text(
+    """
+    UPDATE strategies
+    SET last_evaluated_at = :evaluated_at,
+        next_evaluation_at = :next_evaluation_at,
+        updated_at = now()
+    WHERE id = :strategy_id AND status = 'ACTIVE'
+    """
+)
+
+# These values are the same ones exposed by the three built-in strategy
+# schemas. A strategy is evaluated immediately after activation, then no more
+# frequently than its configured analysis interval. This is both a real
+# 5-minute demo mode and the guard that prevents Claude from being called on
+# each five-second service tick.
+_ANALYSIS_INTERVALS_SECONDS = {
+    "1Min": 60,
+    "5Min": 5 * 60,
+    "15Min": 15 * 60,
+    "1Hour": 60 * 60,
+    "1Day": 24 * 60 * 60,
+}
 
 _RUN_INSERT_SQL = text(
     """
@@ -337,6 +360,41 @@ def _underlying_price(evidence: dict, symbol: str, bars: list[dict]) -> float | 
         if isinstance(value, int | float) and float(value) > 0:
             return float(value)
     return None
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def _analysis_interval_seconds(strategy: dict) -> int:
+    """Return the configured cadence, with a conservative 1Day fallback."""
+    params = strategy.get("parameters") or {}
+    frequency = params.get("analysis_frequency") if isinstance(params, dict) else None
+    return _ANALYSIS_INTERVALS_SECONDS.get(str(frequency), _ANALYSIS_INTERVALS_SECONDS["1Day"])
+
+
+def _strategy_is_due(strategy: dict, now: datetime) -> bool:
+    """A newly activated strategy is due immediately; later runs honor cadence."""
+    next_evaluation = _as_utc(strategy.get("next_evaluation_at"))
+    if next_evaluation is not None:
+        return now >= next_evaluation
+    last_evaluation = _as_utc(strategy.get("last_evaluated_at"))
+    return last_evaluation is None or now >= last_evaluation + timedelta(seconds=_analysis_interval_seconds(strategy))
+
+
+def _mark_strategy_evaluated(engine: Engine, strategy: dict, evaluated_at: datetime) -> None:
+    next_evaluation_at = evaluated_at + timedelta(seconds=_analysis_interval_seconds(strategy))
+    with engine.begin() as conn:
+        conn.execute(
+            _MARK_EVALUATED_SQL,
+            {
+                "strategy_id": strategy["strategy_id"],
+                "evaluated_at": evaluated_at,
+                "next_evaluation_at": next_evaluation_at,
+            },
+        )
 
 
 def _attach_option_instrument(
@@ -592,6 +650,15 @@ def _process_envelope(engine: Engine, redis_client: redis.Redis, envelope: Event
     ai_provider = _build_ai_provider(redis_client)
 
     for strategy in strategies:
+        evaluated_at = datetime.now(UTC)
+        if not _strategy_is_due(strategy, evaluated_at):
+            logger.debug(
+                "stratégie %s pas encore due (prochaine évaluation : %s)",
+                strategy["strategy_id"],
+                strategy.get("next_evaluation_at"),
+            )
+            continue
+
         capabilities = _manifest_capabilities(strategy.get("manifest"))
         requires_ai = False
         if capabilities:
@@ -622,6 +689,7 @@ def _process_envelope(engine: Engine, redis_client: redis.Redis, envelope: Event
         if not isinstance(symbols, list):
             symbols = []
 
+        evaluated = False
         for symbol in symbols:
             bars = _extract_bars(evidence, symbol, timeframe)
             if len(bars) < 2:
@@ -666,6 +734,13 @@ def _process_envelope(engine: Engine, redis_client: redis.Redis, envelope: Event
                 correlation_id=envelope.correlation_id,
                 causation_id=envelope.event_id,
             )
+            # A HOLD is still a completed analysis. Marking it prevents the
+            # exact same Claude request from repeating every five seconds;
+            # the next eligible run follows the strategy's selected cadence.
+            evaluated = True
+
+        if evaluated:
+            _mark_strategy_evaluated(engine, strategy, evaluated_at)
 
 
 def tick(engine: Engine, redis_client: redis.Redis) -> None:

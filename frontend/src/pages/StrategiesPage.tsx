@@ -29,6 +29,7 @@ import {
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import EditIcon from "@mui/icons-material/Edit";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
@@ -46,6 +47,7 @@ import {
   fetchStrategyInstances,
   pauseStrategyInstance,
   stopStrategyInstance,
+  updateStrategyInstance,
   type StrategyDefinition,
   type StrategyInstance,
   type StrategyInstanceStatus,
@@ -383,6 +385,114 @@ function CreateStrategyDialog({
   );
 }
 
+// Editing intentionally reuses the definition-driven parameter form from
+// creation. A strategy must be paused or stopped first: changing its market
+// timeframe while an agent is processing it would make a Paper decision
+// ambiguous. The existing backend PATCH endpoint already enforces that same
+// lifecycle rule; this dialog exposes it in the UI.
+function EditStrategyDialog({
+  target,
+  definitions,
+  userProfile,
+  onClose,
+  onUpdated,
+}: {
+  target: StrategyInstance | null;
+  definitions: StrategyDefinition[];
+  userProfile: UserProfile | null;
+  onClose: () => void;
+  onUpdated: () => void;
+}) {
+  const { t } = useI18n();
+  const [name, setName] = useState("");
+  const [symbols, setSymbols] = useState<string[]>([]);
+  const [parameters, setParameters] = useState<Record<string, unknown>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<string[]>([]);
+  const definition = useMemo(
+    () => definitions.find((item) => item.type_code === target?.type_code) ?? null,
+    [definitions, target?.type_code],
+  );
+
+  useEffect(() => {
+    if (!target) return;
+    setName(target.name);
+    setSymbols(target.symbols);
+    setParameters(target.parameters ?? {});
+    setError(null);
+    setFieldErrors([]);
+  }, [target]);
+
+  async function handleSubmit() {
+    if (!target || !definition || !name.trim() || symbols.length === 0) return;
+    setSubmitting(true);
+    setError(null);
+    setFieldErrors([]);
+    try {
+      await updateStrategyInstance(target.id, {
+        name: name.trim(),
+        symbols,
+        parameters,
+        risk_configuration: target.risk_configuration ?? {},
+      });
+      onUpdated();
+      onClose();
+    } catch (err) {
+      if (err instanceof ApiError && err.code === "VALIDATION_ERROR" && Array.isArray(err.details?.errors)) {
+        setFieldErrors(err.details.errors as string[]);
+      } else {
+        setError(describeError(err));
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog open={target !== null} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>{t("strategy.editTitle")}</DialogTitle>
+      <DialogContent dividers>
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 0.5 }}>
+          {definition && (
+            <Typography variant="body2" color="text.secondary">
+              {strategyDescription(t, definition.type_code, definition.description)}
+            </Typography>
+          )}
+          <TextField fullWidth label={t("common.name")} value={name} onChange={(event) => setName(event.target.value)} />
+          <SymbolAutocomplete value={symbols} onChange={setSymbols} maxSymbols={userProfile?.limits.max_symbols} />
+          {definition && (
+            <ParameterForm
+              definition={definition}
+              values={parameters}
+              onChange={setParameters}
+              defaultAdvancedOpen={userProfile?.profile !== "novice"}
+            />
+          )}
+          {fieldErrors.length > 0 && (
+            <Alert severity="error">
+              {fieldErrors.map((item) => (
+                <div key={item}>{item}</div>
+              ))}
+            </Alert>
+          )}
+          {error && <Alert severity="error">{error}</Alert>}
+        </Box>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>{t("common.cancel")}</Button>
+        <Button
+          variant="contained"
+          disabled={submitting || !definition || !name.trim() || symbols.length === 0}
+          onClick={handleSubmit}
+        >
+          {t("common.save")}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 export default function StrategiesPage() {
   const { t } = useI18n();
   const { data: instances, error, loading, refresh } = useLivePolling(fetchStrategyInstances, 5000);
@@ -392,6 +502,7 @@ export default function StrategiesPage() {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<StrategyInstance | null>(null);
+  const [editTarget, setEditTarget] = useState<StrategyInstance | null>(null);
 
   useEffect(() => {
     fetchStrategyDefinitions()
@@ -518,6 +629,7 @@ export default function StrategiesPage() {
                   instance.status === "READY" ||
                   instance.status === "DRAFT";
                 const canDelete = instance.status !== "ACTIVE";
+                const canEdit = instance.status !== "ACTIVE";
 
                 return (
                   <TableRow key={instance.id}>
@@ -562,6 +674,17 @@ export default function StrategiesPage() {
                           </IconButton>
                         </span>
                       </Tooltip>
+                      <Tooltip title={canEdit ? t("strategy.edit") : t("strategy.editUnavailable")}>
+                        <span>
+                          <IconButton
+                            size="small"
+                            disabled={!canEdit || busy}
+                            onClick={() => setEditTarget(instance)}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
                       <Tooltip title={t("strategy.clone")}>
                         <span>
                           <IconButton
@@ -599,6 +722,14 @@ export default function StrategiesPage() {
         userProfile={userProfile}
         onClose={() => setCreateOpen(false)}
         onCreated={() => refresh()}
+      />
+
+      <EditStrategyDialog
+        target={editTarget}
+        definitions={definitions ?? []}
+        userProfile={userProfile}
+        onClose={() => setEditTarget(null)}
+        onUpdated={() => refresh()}
       />
 
       <Dialog open={deleteTarget !== null} onClose={() => setDeleteTarget(null)}>
