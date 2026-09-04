@@ -39,7 +39,7 @@ export default function AgentRoomPanel({ dense = false, showModeSwitch = true }:
   const { mode, setMode, activeTab, setActiveTab, closeRoom } = useAgentRoom();
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
+    <Box sx={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0, minWidth: 0, overflow: "hidden" }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, px: 1, py: 0.5, borderBottom: 1, borderColor: "divider" }}>
         <Typography variant={dense ? "caption" : "subtitle2"} sx={{ flex: 1, fontWeight: 700 }}>
           AI Agent Room
@@ -63,11 +63,11 @@ export default function AgentRoomPanel({ dense = false, showModeSwitch = true }:
         value={activeTab}
         onChange={(_, value) => setActiveTab(value)}
         variant="fullWidth"
-        sx={{ minHeight: dense ? 32 : 48 }}
+        sx={{ minHeight: dense ? 32 : 48, minWidth: 0, overflow: "hidden" }}
       >
-        <Tab value="live" label={t("agentRoom.liveDebate")} sx={{ minHeight: dense ? 32 : 48, fontSize: dense ? "0.65rem" : undefined }} />
-        <Tab value="ask" label={t("agentRoom.askZiko")} sx={{ minHeight: dense ? 32 : 48, fontSize: dense ? "0.65rem" : undefined }} />
-        <Tab value="decision" label={t("agentRoom.decisionDetails")} sx={{ minHeight: dense ? 32 : 48, fontSize: dense ? "0.65rem" : undefined }} />
+        <Tab value="live" label={t("agentRoom.liveDebate")} sx={{ minWidth: 0, minHeight: dense ? 32 : 48, px: dense ? 0.5 : 1, fontSize: dense ? "0.65rem" : undefined }} />
+        <Tab value="ask" label={t("agentRoom.askZiko")} sx={{ minWidth: 0, minHeight: dense ? 32 : 48, px: dense ? 0.5 : 1, fontSize: dense ? "0.65rem" : undefined }} />
+        <Tab value="decision" label={t("agentRoom.decisionDetails")} sx={{ minWidth: 0, minHeight: dense ? 32 : 48, px: dense ? 0.5 : 1, fontSize: dense ? "0.65rem" : undefined }} />
       </Tabs>
 
       <Box sx={{ flex: 1, minHeight: 0 }}>

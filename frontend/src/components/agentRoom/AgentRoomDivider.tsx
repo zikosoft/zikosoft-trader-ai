@@ -4,21 +4,20 @@ import { useI18n } from "../../i18n/I18nContext";
 
 // §B28 checklist "mode Docked... divider redimensionnable" — glisser
 // horizontalement change la largeur du panneau Agent Room par rapport au
-// contenu principal (défaut 65/35, D010/D011). Bornes 20%-60% pour que ni
-// le contenu ni le panneau ne puissent disparaître complètement par erreur.
-
-const MIN_PERCENT = 20;
-const MAX_PERCENT = 60;
+// contenu principal (défaut 65/35, D010/D011). Les bornes viennent du shell
+// afin de préserver une largeur physique minimale au Room et à la page.
 
 type Props = {
   // Largeur actuelle du panneau Agent Room, en % de la largeur du
   // conteneur flex parent.
   panelPercent: number;
+  minPercent: number;
+  maxPercent: number;
   onChange: (percent: number) => void;
   containerRef: React.RefObject<HTMLDivElement | null>;
 };
 
-export default function AgentRoomDivider({ panelPercent, onChange, containerRef }: Props) {
+export default function AgentRoomDivider({ panelPercent, minPercent, maxPercent, onChange, containerRef }: Props) {
   const { t } = useI18n();
   const draggingRef = useRef(false);
 
@@ -30,10 +29,10 @@ export default function AgentRoomDivider({ panelPercent, onChange, containerRef 
       // Le panneau est à DROITE du diviseur — sa largeur est la distance
       // entre le pointeur et le bord droit du conteneur.
       const percentFromRight = ((rect.right - event.clientX) / rect.width) * 100;
-      const clamped = Math.min(MAX_PERCENT, Math.max(MIN_PERCENT, percentFromRight));
+      const clamped = Math.min(maxPercent, Math.max(minPercent, percentFromRight));
       onChange(clamped);
     },
-    [containerRef, onChange],
+    [containerRef, maxPercent, minPercent, onChange],
   );
 
   const handlePointerUp = useCallback(() => {
@@ -55,15 +54,15 @@ export default function AgentRoomDivider({ panelPercent, onChange, containerRef 
       aria-orientation="vertical"
       aria-label={t("agentRoom.resize")}
       aria-valuenow={Math.round(panelPercent)}
-      aria-valuemin={MIN_PERCENT}
-      aria-valuemax={MAX_PERCENT}
+      aria-valuemin={Math.round(minPercent)}
+      aria-valuemax={Math.round(maxPercent)}
       tabIndex={0}
       onPointerDown={() => {
         draggingRef.current = true;
       }}
       onKeyDown={(event) => {
-        if (event.key === "ArrowLeft") onChange(Math.min(MAX_PERCENT, panelPercent + 2));
-        if (event.key === "ArrowRight") onChange(Math.max(MIN_PERCENT, panelPercent - 2));
+        if (event.key === "ArrowLeft") onChange(Math.min(maxPercent, panelPercent + 2));
+        if (event.key === "ArrowRight") onChange(Math.max(minPercent, panelPercent - 2));
       }}
       sx={{
         width: 6,

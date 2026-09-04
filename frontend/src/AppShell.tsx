@@ -89,6 +89,12 @@ const NAV_ITEMS: NavItem[] = [
 const DRAWER_WIDTH_EXPANDED = 240;
 const DRAWER_WIDTH_COLLAPSED = 64;
 const COLLAPSE_STORAGE_KEY = "zikosofttrader.sidebar-collapsed";
+// The Room's tabs and decision cards remain usable only above this physical
+// width. Below the large-desktop breakpoint the requested docked mode becomes
+// an in-content overlay instead of forcing a narrow, horizontally scrolling
+// split layout.
+const MIN_DOCKED_PANEL_PX = 360;
+const MIN_PAGE_CONTENT_PX = 480;
 
 function readInitialCollapsed(): boolean {
   try {
@@ -121,6 +127,7 @@ function AppShellInner({ user, contextState, onContextChanged, onLogout }: Props
   const { locale, setLocale, t } = useI18n();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const isWideDesktop = useMediaQuery(theme.breakpoints.up("lg"));
   const location = useLocation();
   const { mode, toggle: toggleThemeMode } = useThemeMode();
 
@@ -136,13 +143,43 @@ function AppShellInner({ user, contextState, onContextChanged, onLogout }: Props
   const { mode: roomMode, open: roomOpen, closeRoom, setMode } = useAgentRoom();
   const [dockedPercent, setDockedPercent] = useState(35);
   const mainRowRef = useRef<HTMLDivElement>(null);
+  const [mainRowWidth, setMainRowWidth] = useState(0);
 
-  const dockedActive = roomOpen && roomMode === "docked" && !isMobile;
+  // Desktop split only when both columns can stay usable. Tablets keep the
+  // selected DOCKED preference but render it as an in-content overlay; a
+  // larger window automatically returns to the resizable split.
+  const dockedRequested = roomOpen && roomMode === "docked" && !isMobile;
+  const dockedActive = dockedRequested && isWideDesktop;
+  const dockedOverlayActive = dockedRequested && !isWideDesktop;
   const fullscreenActive = roomOpen && roomMode === "fullscreen" && !isMobile;
+  const roomOverlayActive = fullscreenActive || dockedOverlayActive;
   // §checklist "mobile bascule en plein écran/bottom sheet" — docked n'a pas
   // de sens sur un écran étroit (pas de place pour un 65/35), donc les deux
   // modes non-compact convergent vers la même feuille du bas sur mobile.
   const mobileSheetActive = roomOpen && roomMode !== "compact" && isMobile;
+
+  useEffect(() => {
+    const element = mainRowRef.current;
+    if (!element) return;
+
+    const updateWidth = () => setMainRowWidth(element.getBoundingClientRect().width);
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  // Percentages alone allow the divider to make the panel too narrow on a
+  // smaller desktop. Clamp it against real pixel minimums for both columns.
+  const minDockedPercent =
+    mainRowWidth > 0
+      ? Math.max(20, Math.min(60, (MIN_DOCKED_PANEL_PX / mainRowWidth) * 100))
+      : 35;
+  const maxDockedPercent =
+    mainRowWidth > 0
+      ? Math.min(60, Math.max(minDockedPercent, ((mainRowWidth - MIN_PAGE_CONTENT_PX) / mainRowWidth) * 100))
+      : 60;
+  const effectiveDockedPercent = Math.min(maxDockedPercent, Math.max(minDockedPercent, dockedPercent));
 
   // Leaving the dedicated Agent Room route must not leave the route-opened
   // fullscreen overlay covering the next page. This must run only on the
@@ -325,9 +362,19 @@ function AppShellInner({ user, contextState, onContextChanged, onLogout }: Props
               <MenuIcon />
             </IconButton>
           )}
-          <Typography variant="h6" component="div" sx={{ whiteSpace: "nowrap" }}>
-            ZikosoftTrader AI
-          </Typography>
+          <Box
+            component="img"
+            src="/branding/logo.svg"
+            alt="ZikosoftTrader AI"
+            sx={{
+              display: "block",
+              height: 32,
+              width: { xs: 145, sm: 190 },
+              maxWidth: "42vw",
+              objectFit: "contain",
+              objectPosition: "left center",
+            }}
+          />
 
           {/* §Qualité "Mobile/tablette/desktop" — la ligne d'origine (titre +
               sélecteur de contexte + indicateurs + menu utilisateur, tout sur
@@ -447,11 +494,19 @@ function AppShellInner({ user, contextState, onContextChanged, onLogout }: Props
       <Box
         component="main"
         ref={mainRowRef}
-        sx={{ flexGrow: 1, width: { sm: `calc(100% - ${drawerWidth}px)` }, display: "flex", flexDirection: "row", minWidth: 0 }}
+        sx={{
+          flexGrow: 1,
+          width: { sm: `calc(100% - ${drawerWidth}px)` },
+          display: "flex",
+          flexDirection: "row",
+          minWidth: 0,
+          maxWidth: "100%",
+          overflowX: "clip",
+        }}
       >
         <Box
           sx={{
-            flex: dockedActive ? `0 0 ${100 - dockedPercent}%` : 1,
+            flex: dockedActive ? `0 0 ${100 - effectiveDockedPercent}%` : 1,
             minWidth: 0,
             display: "flex",
             flexDirection: "column",
@@ -496,7 +551,7 @@ function AppShellInner({ user, contextState, onContextChanged, onLogout }: Props
               context={{ user, onLogout, contextState, onContextChanged } satisfies AppShellOutletContext}
             />
           </Box>
-          {fullscreenActive && (
+          {roomOverlayActive && (
             // §checklist "mode Full screen central... panneau couvre toute
             // la zone de contenu" — l'AppBar et le menu latéral restent
             // visibles (D010/D011 "ne pas bloquer le dashboard" = ne jamais
@@ -556,11 +611,20 @@ function AppShellInner({ user, contextState, onContextChanged, onLogout }: Props
             sx={{
               display: "flex",
               flexShrink: 0,
-              flexBasis: `${dockedPercent}%`,
+              flexBasis: `${effectiveDockedPercent}%`,
+              minWidth: 0,
+              maxWidth: "100%",
+              overflow: "hidden",
               height: `calc(100vh - ${appBarHeight}px)`,
             }}
           >
-            <AgentRoomDivider panelPercent={dockedPercent} onChange={setDockedPercent} containerRef={mainRowRef} />
+            <AgentRoomDivider
+              panelPercent={effectiveDockedPercent}
+              minPercent={minDockedPercent}
+              maxPercent={maxDockedPercent}
+              onChange={setDockedPercent}
+              containerRef={mainRowRef}
+            />
             <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", borderLeft: 1, borderColor: "divider", bgcolor: "background.paper" }}>
               {/* §B31 — même raison que le spacer du contenu principal
                   ci-dessus : `appBarHeight` RAW, pas `headerOffset` — ce

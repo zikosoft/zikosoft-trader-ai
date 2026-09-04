@@ -81,7 +81,7 @@ function MessageItem({ message, dense }: { message: AgentMessage; dense: boolean
             {formatDateTime(locale, message.occurred_at)}
           </Typography>
         </Stack>
-        <Typography variant={dense ? "caption" : "body2"} sx={{ mt: 0.5, whiteSpace: "pre-wrap" }}>
+        <Typography variant={dense ? "caption" : "body2"} sx={{ mt: 0.5, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
           {message.content}
         </Typography>
         {expertSummary && (
