@@ -364,7 +364,7 @@ function AppShellInner({ user, contextState, onContextChanged, onLogout }: Props
           )}
           <Box
             component="img"
-            src="/branding/logo.svg"
+            src="/branding/logo.png"
             alt="ZikosoftTrader AI"
             sx={{
               display: "block",

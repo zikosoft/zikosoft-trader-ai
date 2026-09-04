@@ -2,7 +2,7 @@
 
 Replace these two files directly, keeping the same paths and file names:
 
-- `frontend/public/branding/logo.svg` — header wordmark, rendered inside a
+- `frontend/public/branding/logo.png` — header wordmark, rendered inside a
   responsive 190 × 32 px area on desktop.
 - `frontend/public/favicon.svg` — browser favicon, square SVG preferred.
 
