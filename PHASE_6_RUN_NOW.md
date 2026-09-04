@@ -45,7 +45,9 @@ In **Strategies**:
 
 The first eligible fresh five-minute candle triggers an evaluation immediately;
 there is no need to wait for the next five-minute boundary after activation.
-After that, the strategy is eligible again at most once every five minutes.
+After that, all three built-in strategies are eligible again at most once every
+five minutes when their `timeframe` is set to `5Min` (the AI strategy may use
+its explicit `analysis_frequency` instead).
 
 ## Expected live debate
 

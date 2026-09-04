@@ -64,7 +64,11 @@ logger = logging.getLogger("market-agent")
 # §B09 pas encore implémenté (catalogue des actifs / watchlist par
 # utilisateur) — espace réservé documenté, respecte déjà la limite V1 de
 # B09 ("Maximum 10 symboles surveillés cumulés").
+# Safe fallback for a newly connected Paper account with no active strategy.
+# Once a strategy is active, its own symbols are monitored instead (up to the
+# same V1 maximum of ten instruments).
 DEMO_WATCHLIST: tuple[str, ...] = ("AAPL", "MSFT", "SPY")
+MAX_MONITORED_SYMBOLS = 10
 
 MAX_EVIDENCE_AGE_SECONDS = 15 * 60  # §B10 "Rejeter les données trop anciennes"
 MAX_NEWS_ITEMS = 5
@@ -162,6 +166,48 @@ def _requested_timeframes(engine: Engine, execution_context_id: uuid.UUID) -> tu
     if requested:
         return tuple(requested)
     return tuple(timeframe for timeframe in BARS_TIMEFRAMES if timeframe in SUPPORTED_BARS_TIMEFRAMES) or ("1Day",)
+
+
+def _requested_symbols(engine: Engine, execution_context_id: uuid.UUID) -> tuple[str, ...]:
+    """Return active Paper strategy symbols for one execution context.
+
+    The former static demo watchlist meant an active strategy for ``DELL``
+    received no snapshot, bars, or option chain, and therefore could never
+    reach Strategy Agent or write a Live Debate message.  Strategy symbols
+    now drive the read-only MCP requests; the demo watchlist is only used
+    before the first strategy is activated.
+    """
+    query = text(
+        """
+        SELECT symbols
+        FROM strategies
+        WHERE execution_context_id = :execution_context_id AND status = 'ACTIVE'
+        """
+    )
+    with engine.connect() as conn:
+        rows = conn.execute(query, {"execution_context_id": execution_context_id}).mappings().all()
+
+    requested: list[str] = []
+    for row in rows:
+        symbols = row.get("symbols")
+        if isinstance(symbols, str):
+            try:
+                symbols = json.loads(symbols)
+            except json.JSONDecodeError:
+                symbols = None
+        if not isinstance(symbols, list):
+            continue
+        for symbol in symbols:
+            if not isinstance(symbol, str):
+                continue
+            normalised = symbol.strip().upper()
+            if not normalised or normalised in requested:
+                continue
+            requested.append(normalised)
+            if len(requested) >= MAX_MONITORED_SYMBOLS:
+                return tuple(requested)
+
+    return tuple(requested) if requested else DEMO_WATCHLIST
 
 
 def _ensure_manager(account_id: uuid.UUID, api_key: str, secret_key: str) -> McpSessionManager:
@@ -393,7 +439,39 @@ def _persist_quote(engine: Engine, *, symbol: str, raw: Any) -> None:
         )
 
 
-def _gather_evidence(manager: McpSessionManager, *, timeframes: tuple[str, ...] = BARS_TIMEFRAMES) -> dict:
+def _single_symbol_snapshot(raw: Any, symbol: str) -> Any:
+    """Unwrap a multi-symbol MCP snapshot response for one requested ticker.
+
+    Alpaca's stock snapshot endpoint accepts the required plural ``symbols``
+    query parameter, even when the caller asks for a single ticker.  MCP
+    adapters may consequently return either the snapshot directly, a mapping
+    keyed by the ticker, or a ``{"snapshots": {"TICKER": ...}}`` envelope.
+    Keeping a single normalized value in evidence lets quote persistence and
+    freshness checks work with all three real response forms.
+    """
+    if not isinstance(raw, dict):
+        return raw
+
+    wanted = symbol.upper()
+    for container_key in ("snapshots", "snapshot"):
+        nested = raw.get(container_key)
+        if isinstance(nested, dict):
+            candidate = nested.get(wanted) or nested.get(symbol)
+            if isinstance(candidate, dict):
+                return candidate
+
+    candidate = raw.get(wanted) or raw.get(symbol)
+    if isinstance(candidate, dict):
+        return candidate
+    return raw
+
+
+def _gather_evidence(
+    manager: McpSessionManager,
+    *,
+    symbols: tuple[str, ...] = DEMO_WATCHLIST,
+    timeframes: tuple[str, ...] = BARS_TIMEFRAMES,
+) -> dict:
     """§B10 fonctions agent : état du marché/calendrier, quote/snapshot,
     actualités, horodatage. §B13 : bougies OHLCV par symbole/timeframe
     (`BARS_TIMEFRAMES`), ajoutées quand la construction du Strategy Agent a
@@ -415,9 +493,15 @@ def _gather_evidence(manager: McpSessionManager, *, timeframes: tuple[str, ...] 
     except McpSessionError as exc:
         evidence["errors"].append(f"get_clock: {exc}")
 
-    for symbol in DEMO_WATCHLIST:
+    for symbol in symbols:
         try:
-            evidence["watchlist"][symbol] = manager.call_tool("get_stock_snapshot", {"symbol": symbol})
+            # The actual Alpaca MCP OpenAPI contract requires ``symbols`` for
+            # both snapshots and bars (comma-delimited for multiple symbols),
+            # not the singular ``symbol`` used by an earlier speculative
+            # integration.  A singular argument makes MCP reject every call
+            # with HTTP 400, which in turn made every strategy stale.
+            raw_snapshot = manager.call_tool("get_stock_snapshot", {"symbols": symbol})
+            evidence["watchlist"][symbol] = _single_symbol_snapshot(raw_snapshot, symbol)
         except McpSessionError as exc:
             evidence["errors"].append(f"get_stock_snapshot({symbol}): {exc}")
 
@@ -425,7 +509,7 @@ def _gather_evidence(manager: McpSessionManager, *, timeframes: tuple[str, ...] 
         for timeframe in timeframes:
             try:
                 raw_bars = manager.call_tool(
-                    "get_stock_bars", {"symbol": symbol, "timeframe": timeframe, "limit": BARS_LOOKBACK}
+                    "get_stock_bars", {"symbols": symbol, "timeframe": timeframe, "limit": BARS_LOOKBACK}
                 )
                 evidence["bars"][symbol][timeframe] = _normalize_bars(raw_bars, symbol)
             except McpSessionError as exc:
@@ -450,7 +534,7 @@ def _gather_evidence(manager: McpSessionManager, *, timeframes: tuple[str, ...] 
             evidence["errors"].append(f"get_option_chain({symbol}): {exc}")
 
     try:
-        raw_news = manager.call_tool("get_news", {"symbols": ",".join(DEMO_WATCHLIST), "limit": MAX_NEWS_ITEMS})
+        raw_news = manager.call_tool("get_news", {"symbols": ",".join(symbols), "limit": MAX_NEWS_ITEMS})
         evidence["news"] = _sanitize_news(raw_news.get("news") or raw_news.get("articles") or [])
     except McpSessionError as exc:
         evidence["errors"].append(f"get_news: {exc}")
@@ -513,6 +597,21 @@ def _extract_data_timestamps(evidence: dict) -> list[float]:
     _walk(evidence.get("news"))
 
     return [ts for raw in candidates if (ts := _parse_timestamp(raw)) is not None]
+
+
+def _evidence_is_stale(evidence: dict, *, now: float | None = None) -> bool:
+    """Return whether the newest real market observation is too old.
+
+    A request deliberately includes historical OHLCV bars.  The first one is
+    expected to be older than ``MAX_EVIDENCE_AGE_SECONDS``; freshness must be
+    evaluated from the latest observation, not from that first historical bar.
+    If an MCP response has no trustworthy timestamp, fail closed.
+    """
+    data_timestamps = _extract_data_timestamps(evidence)
+    if not data_timestamps:
+        return True
+    reference_time = time.time() if now is None else now
+    return (reference_time - max(data_timestamps)) > MAX_EVIDENCE_AGE_SECONDS
 
 
 def _ai_config_from_env(redis_client=None) -> AIProviderConfig:
@@ -613,8 +712,10 @@ def tick(engine: Engine, redis_client: redis.Redis) -> None:
             logger.warning("account %s: aucun contexte PAPER trouvé, événement non publié", account_id)
             continue
 
+        monitored_symbols = _requested_symbols(engine, context_id)
         evidence = _gather_evidence(
             manager,
+            symbols=monitored_symbols,
             timeframes=_requested_timeframes(engine, context_id),
         )
         ai_summary = _summarize_with_ai(evidence, redis_client) if MARKET_AGENT_AI_SUMMARY_ENABLED else None
@@ -642,11 +743,7 @@ def tick(engine: Engine, redis_client: redis.Redis) -> None:
         # sandbox sans réseau vers Alpaca), la fraîcheur n'est pas
         # garantissable -> traité comme périmé par défaut, jamais comme
         # frais par défaut.
-        data_timestamps = _extract_data_timestamps(evidence)
-        if data_timestamps:
-            stale = (time.time() - min(data_timestamps)) > MAX_EVIDENCE_AGE_SECONDS
-        else:
-            stale = True
+        stale = _evidence_is_stale(evidence)
 
         envelope = EventEnvelope(
             event_type="market.analysis.completed",
@@ -655,8 +752,8 @@ def tick(engine: Engine, redis_client: redis.Redis) -> None:
             execution_context_id=context_id,
             payload={
                 "account_id": str(account_id),
-                "watchlist": list(DEMO_WATCHLIST),
-                "watchlist_note": "espace réservé — remplacé par le vrai catalogue quand B09 sera livré",
+                "watchlist": list(monitored_symbols),
+                "watchlist_note": "symboles des stratégies Paper actives (liste démo uniquement sans stratégie active)",
                 "evidence": evidence,
                 "ai_summary": ai_summary,
                 "stale": stale,

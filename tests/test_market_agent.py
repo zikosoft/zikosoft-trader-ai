@@ -247,6 +247,68 @@ class TestFreshnessCheck:
             market_agent._parse_timestamp("2024-06-01T00:00:00Z")
         ]
 
+    def test_historical_bars_are_fresh_when_the_latest_bar_is_recent(self):
+        now = 1_700_000_000.0
+        evidence = {
+            "clock": None,
+            "watchlist": {},
+            "bars": {
+                "DELL": {
+                    "5Min": [
+                        {"timestamp": now - 3600, "close": 100.0},
+                        {"timestamp": now - 60, "close": 101.0},
+                    ]
+                }
+            },
+            "news": [],
+        }
+        assert market_agent._evidence_is_stale(evidence, now=now) is False
+
+    def test_evidence_without_a_recent_observation_is_stale(self):
+        now = 1_700_000_000.0
+        evidence = {
+            "clock": None,
+            "watchlist": {},
+            "bars": {"DELL": {"5Min": [{"timestamp": now - 901, "close": 100.0}]}},
+            "news": [],
+        }
+        assert market_agent._evidence_is_stale(evidence, now=now) is True
+
+
+class TestEvidenceSymbols:
+    """Active strategy symbols, not the old demo list, drive MCP reads."""
+
+    class _RecordingManager:
+        def __init__(self):
+            self.calls: list[tuple[str, dict | None]] = []
+
+        def call_tool(self, name, arguments=None):
+            self.calls.append((name, arguments))
+            if name == "get_clock":
+                return {"timestamp": "2026-09-03T12:00:00Z"}
+            if name == "get_stock_snapshot":
+                return {"latest_trade": {"price": 100.0, "timestamp": "2026-09-03T12:00:00Z"}}
+            if name == "get_stock_bars":
+                return {"bars": []}
+            if name == "get_news":
+                return {"news": []}
+            return {}
+
+    def test_requested_symbol_is_used_for_all_market_evidence(self):
+        manager = self._RecordingManager()
+        evidence = market_agent._gather_evidence(manager, symbols=("DELL",), timeframes=("5Min",))
+
+        assert set(evidence["watchlist"]) == {"DELL"}
+        assert set(evidence["bars"]) == {"DELL"}
+        assert set(evidence["options"]) == {"DELL"}
+        assert ("get_stock_snapshot", {"symbols": "DELL"}) in manager.calls
+        assert ("get_stock_bars", {"symbols": "DELL", "timeframe": "5Min", "limit": market_agent.BARS_LOOKBACK}) in manager.calls
+        assert ("get_news", {"symbols": "DELL", "limit": market_agent.MAX_NEWS_ITEMS}) in manager.calls
+
+    def test_unwraps_multi_symbol_snapshot_response(self):
+        raw = {"snapshots": {"DELL": {"latest_trade": {"price": 100.0}}}}
+        assert market_agent._single_symbol_snapshot(raw, "DELL") == {"latest_trade": {"price": 100.0}}
+
 
 class TestNormalizeBars:
     """§B13 — ajouté quand la construction du Strategy Agent a révélé que

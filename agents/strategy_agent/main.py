@@ -369,9 +369,17 @@ def _as_utc(value: datetime | None) -> datetime | None:
 
 
 def _analysis_interval_seconds(strategy: dict) -> int:
-    """Return the configured cadence, with a conservative 1Day fallback."""
+    """Return the configured cadence, with the candle timeframe as fallback.
+
+    AI Market Agent exposes ``analysis_frequency`` explicitly. The two
+    deterministic strategies do not; for them the selected candle timeframe
+    is the intended cadence (a 5Min RSI demo must evaluate again in five
+    minutes, not fall back to one day after its first run).
+    """
     params = strategy.get("parameters") or {}
-    frequency = params.get("analysis_frequency") if isinstance(params, dict) else None
+    frequency = None
+    if isinstance(params, dict):
+        frequency = params.get("analysis_frequency") or params.get("timeframe")
     return _ANALYSIS_INTERVALS_SECONDS.get(str(frequency), _ANALYSIS_INTERVALS_SECONDS["1Day"])
 
 
