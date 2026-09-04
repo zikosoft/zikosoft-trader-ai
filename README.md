@@ -702,6 +702,7 @@ Generate a Fernet key for `APP_ENCRYPTION_KEY`:
 ```bash
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
+Then past the value for the variable APP_ENCRYPTION_KEY=XXXX inside the .env 
 
 Then configure the values required for your environment.
 
