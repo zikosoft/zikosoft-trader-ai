@@ -106,6 +106,30 @@ def _tick_interval_override(service_name: str) -> float | None:
     return value if value > 0 else None
 
 
+def _heartbeat_ttl_override(service_name: str) -> int | None:
+    """Return an optional service-specific heartbeat TTL.
+
+    A Market Agent tick can legitimately spend up to roughly 30 seconds in
+    bounded MCP calls (clock, snapshot, bars, news, then option discovery).
+    Its normal completion heartbeat must therefore not expire while that work
+    is in progress.  The override is deliberately per-service: the stricter
+    global TTL remains in effect for every other worker.
+
+    Convention: ``<SERVICE_NAME>_HEARTBEAT_TTL_SECONDS``.  A missing, invalid
+    or non-positive value is ignored so a malformed deployment variable never
+    prevents a service from starting.
+    """
+    env_name = f"{service_name.upper().replace('-', '_')}_HEARTBEAT_TTL_SECONDS"
+    raw = os.environ.get(env_name)
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
 def run_service(
     service_name: str,
     tick: Callable[[Engine, redis.Redis], None],
@@ -128,7 +152,7 @@ def run_service(
 
     engine = build_engine()
     redis_client = build_redis_client()
-    ttl = int(os.environ.get("HEARTBEAT_TTL_SECONDS", "15"))
+    ttl = _heartbeat_ttl_override(service_name) or int(os.environ.get("HEARTBEAT_TTL_SECONDS", "15"))
 
     # Vérifie la connectivité au démarrage plutôt que d'échouer silencieusement
     # boucle après boucle (§11.1 — la santé doit représenter la disponibilité

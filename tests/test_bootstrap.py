@@ -121,6 +121,26 @@ class TestTickIntervalOverride:
         assert captured["seconds"] == 42.0
 
 
+class TestHeartbeatTtlOverride:
+    """A long, bounded Market Agent MCP tick must not create a false outage."""
+
+    def test_no_env_var_returns_none(self, monkeypatch):
+        monkeypatch.delenv("MARKET_AGENT_HEARTBEAT_TTL_SECONDS", raising=False)
+        assert bootstrap._heartbeat_ttl_override("market-agent") is None
+
+    def test_valid_env_var_overrides(self, monkeypatch):
+        monkeypatch.setenv("MARKET_AGENT_HEARTBEAT_TTL_SECONDS", "60")
+        assert bootstrap._heartbeat_ttl_override("market-agent") == 60
+
+    def test_invalid_or_non_positive_value_is_ignored(self, monkeypatch):
+        monkeypatch.setenv("MARKET_AGENT_HEARTBEAT_TTL_SECONDS", "not-a-number")
+        assert bootstrap._heartbeat_ttl_override("market-agent") is None
+        monkeypatch.setenv("MARKET_AGENT_HEARTBEAT_TTL_SECONDS", "0")
+        assert bootstrap._heartbeat_ttl_override("market-agent") is None
+        monkeypatch.setenv("MARKET_AGENT_HEARTBEAT_TTL_SECONDS", "-1")
+        assert bootstrap._heartbeat_ttl_override("market-agent") is None
+
+
 class TestRunServiceShutdown:
     def test_stopped_heartbeat_published_on_shutdown(self, redis_client, monkeypatch):
         """§checklist B22 "États STOPPED" : simule un arrêt déjà demandé
