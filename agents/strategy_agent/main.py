@@ -88,6 +88,12 @@ RECLAIM_IDLE_MS = 30_000
 # calculer une volatilité récente sans réabonnement à `market.analysis.completed`.
 MAX_RECENT_CLOSES = 30
 OPTIONS_MAX_PREMIUM_PER_ORDER = float(os.environ.get("OPTIONS_MAX_PREMIUM_PER_ORDER", "500"))
+# A directional signal can arrive before the Market Agent's read-only option
+# cache has completed its first refresh. Retry that *same candle* once soon
+# rather than waiting a full 5/15-minute strategy interval, while preserving
+# the normal cadence for all completed evaluations.
+OPTIONS_DISCOVERY_RETRY_SECONDS = max(15, int(os.environ.get("OPTIONS_DISCOVERY_RETRY_SECONDS", "30")))
+MARKET_DATA_STATUS_THROTTLE_SECONDS = 60
 
 _TYPE_CODE_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
@@ -156,6 +162,63 @@ _AGENT_MESSAGE_INSERT_SQL = text(
          :content, CAST(:payload AS jsonb))
     """
 )
+
+
+def _record_market_data_status(
+    engine: Engine,
+    redis_client: redis.Redis,
+    *,
+    strategy: dict,
+    execution_context_id: uuid.UUID,
+    correlation_id: uuid.UUID,
+    symbol: str,
+    timeframe: str | None,
+    bar_count: int,
+    reason: str,
+) -> None:
+    """Make an unevaluable strategy visible in Live Debate.
+
+    An insufficient-data path must be a truthful no-order status, not a
+    silent return. Redis throttling prevents a temporary upstream issue from
+    filling the room once per service tick.
+    """
+    message_user_id = strategy.get("user_id")
+    if message_user_id is None:
+        return
+    safe_timeframe = str(timeframe or "configured timeframe")
+    throttle_key = (
+        f"agent-room:strategy-market-data:{strategy['strategy_id']}:{symbol}:{safe_timeframe}:{reason}"
+    )
+    if not redis_client.set(throttle_key, "1", nx=True, ex=MARKET_DATA_STATUS_THROTTLE_SECONDS):
+        return
+
+    content = (
+        f"Strategy Agent: waiting for usable {symbol} {safe_timeframe} bars from Alpaca MCP "
+        f"({bar_count} received; {reason}). No option order was considered."
+    )
+    with engine.begin() as conn:
+        conn.execute(
+            _AGENT_MESSAGE_INSERT_SQL,
+            {
+                "id": uuid.uuid4(),
+                "user_id": message_user_id,
+                "execution_context_id": execution_context_id,
+                "conversation_thread_id": correlation_id,
+                "state": "failed",
+                "content": content,
+                "payload": json.dumps(
+                    {
+                        "source": "market_data",
+                        "strategy_id": str(strategy["strategy_id"]),
+                        "symbol": symbol,
+                        "timeframe": safe_timeframe,
+                        "bar_count": bar_count,
+                        "reason": reason,
+                        "risk_flags": ["market_data_unavailable"],
+                    }
+                ),
+            },
+        )
 
 
 def _active_strategies(engine: Engine, execution_context_id: uuid.UUID) -> list[dict]:
@@ -392,8 +455,23 @@ def _strategy_is_due(strategy: dict, now: datetime) -> bool:
     return last_evaluation is None or now >= last_evaluation + timedelta(seconds=_analysis_interval_seconds(strategy))
 
 
-def _mark_strategy_evaluated(engine: Engine, strategy: dict, evaluated_at: datetime) -> None:
-    next_evaluation_at = evaluated_at + timedelta(seconds=_analysis_interval_seconds(strategy))
+def _mark_strategy_evaluated(
+    engine: Engine,
+    strategy: dict,
+    evaluated_at: datetime,
+    *,
+    retry_after_seconds: int | None = None,
+) -> None:
+    """Mark an evaluation complete and schedule its next eligible run.
+
+    The only short retry is for a directional signal held solely because the
+    read-only option cache is still warming. It is bounded by the configured
+    value and does not weaken the Paper-only Risk Engine path.
+    """
+    interval_seconds = _analysis_interval_seconds(strategy)
+    if retry_after_seconds is not None:
+        interval_seconds = min(interval_seconds, max(1, retry_after_seconds))
+    next_evaluation_at = evaluated_at + timedelta(seconds=interval_seconds)
     with engine.begin() as conn:
         conn.execute(
             _MARK_EVALUATED_SQL,
@@ -456,6 +534,11 @@ def _attach_option_instrument(
     return proposal.model_copy(update={"option_instrument": instrument})
 
 
+def _needs_option_discovery_retry(proposal: StrategyProposal) -> bool:
+    """Return true only for the transient missing-option-data HOLD path."""
+    return any(flag in {"options_unavailable", "option_selection_failed"} for flag in proposal.risk_flags)
+
+
 def _recent_closes(bars: list[dict], *, limit: int = MAX_RECENT_CLOSES) -> list[float]:
     """§B14 — extrait les dernières clôtures (déjà triées du plus ancien au
     plus récent, voir `_extract_bars`) pour que le Risk Critic Agent (premier
@@ -491,7 +574,13 @@ def _record_and_publish(
     `False` sans rien publier quand `ON CONFLICT DO NOTHING` détecte que cette
     fenêtre (stratégie, symbole, dernière bougie) a déjà été traitée — c'est
     le mécanisme même de "empêcher proposition dupliquée" (§B13)."""
-    window_key = f"{symbol}:{market_data_timestamp.isoformat()}"
+    # A first directional evaluation may truthfully become HOLD only because
+    # option discovery is still warming. Keep that status idempotent, while
+    # allowing one enriched proposal for the same underlying candle once a
+    # real quoted contract is available. All other outcomes retain the exact
+    # original candle window key and therefore the existing duplicate guard.
+    base_window_key = f"{symbol}:{market_data_timestamp.isoformat()}"
+    window_key = f"{base_window_key}:options-pending" if _needs_option_discovery_retry(proposal) else base_window_key
     run_id = uuid.uuid4()
     decision_id = uuid.uuid4()
 
@@ -615,6 +704,13 @@ def _record_and_publish(
 
 def _process_envelope(engine: Engine, redis_client: redis.Redis, envelope: EventEnvelope) -> None:
     payload = envelope.payload or {}
+    logger.info(
+        "market analysis received by Strategy Agent",
+        extra={
+            "correlation_id": str(envelope.correlation_id),
+            "execution_context_id": str(envelope.execution_context_id),
+        },
+    )
 
     # §B31 "Bloquer nouvelles propositions exécutables" — vérification
     # indépendante, DÉFENSE EN PROFONDEUR : `engage()` (backend/app/
@@ -648,6 +744,13 @@ def _process_envelope(engine: Engine, redis_client: redis.Redis, envelope: Event
     evidence = payload.get("evidence") or {}
     strategies = _active_strategies(engine, envelope.execution_context_id)
     if not strategies:
+        logger.warning(
+            "no ACTIVE strategy found for market analysis context",
+            extra={
+                "correlation_id": str(envelope.correlation_id),
+                "execution_context_id": str(envelope.execution_context_id),
+            },
+        )
         return
 
     # §B12 "AI Market Agent Strategy" — construit une fois par événement
@@ -698,20 +801,43 @@ def _process_envelope(engine: Engine, redis_client: redis.Redis, envelope: Event
             symbols = []
 
         evaluated = False
+        retry_after_seconds: int | None = None
         for symbol in symbols:
             bars = _extract_bars(evidence, symbol, timeframe)
             if len(bars) < 2:
-                logger.debug(
-                    "données insuffisantes pour %s/%s (%d bougie(s)), pas d'évaluation cette fois",
+                logger.info(
+                    "insufficient market bars for strategy evaluation: %s/%s (%d bar(s))",
                     strategy["type_code"],
                     symbol,
                     len(bars),
+                )
+                _record_market_data_status(
+                    engine,
+                    redis_client,
+                    strategy=strategy,
+                    execution_context_id=envelope.execution_context_id,
+                    correlation_id=envelope.correlation_id,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    bar_count=len(bars),
+                    reason="insufficient usable candles",
                 )
                 continue
 
             market_data_timestamp = _parse_bar_timestamp(bars[-1].get("timestamp"))
             if market_data_timestamp is None:
-                logger.debug("dernière bougie sans horodatage exploitable pour %s, ignorée", symbol)
+                logger.info("latest market bar has no usable timestamp for %s", symbol)
+                _record_market_data_status(
+                    engine,
+                    redis_client,
+                    strategy=strategy,
+                    execution_context_id=envelope.execution_context_id,
+                    correlation_id=envelope.correlation_id,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    bar_count=len(bars),
+                    reason="latest candle has no usable timestamp",
+                )
                 continue
 
             try:
@@ -742,13 +868,21 @@ def _process_envelope(engine: Engine, redis_client: redis.Redis, envelope: Event
                 correlation_id=envelope.correlation_id,
                 causation_id=envelope.event_id,
             )
-            # A HOLD is still a completed analysis. Marking it prevents the
-            # exact same Claude request from repeating every five seconds;
-            # the next eligible run follows the strategy's selected cadence.
+            # A HOLD is still a completed analysis. A short, bounded retry is
+            # reserved solely for a directional signal that could not yet be
+            # attached to a real option instrument; all normal HOLDs preserve
+            # the selected strategy cadence and never create an AI cost loop.
             evaluated = True
+            if _needs_option_discovery_retry(proposal):
+                retry_after_seconds = OPTIONS_DISCOVERY_RETRY_SECONDS
 
         if evaluated:
-            _mark_strategy_evaluated(engine, strategy, evaluated_at)
+            _mark_strategy_evaluated(
+                engine,
+                strategy,
+                evaluated_at,
+                retry_after_seconds=retry_after_seconds,
+            )
 
 
 def tick(engine: Engine, redis_client: redis.Redis) -> None:

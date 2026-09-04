@@ -364,6 +364,13 @@ class McpSessionManager:
         try:
             return future.result(timeout=self._tool_call_timeout)
         except TimeoutError as exc:
+            # Leaving the coroutine queued after its caller gave up can
+            # serialize every subsequent stock-data request behind one slow
+            # option-chain call. Cancellation is best-effort (the upstream
+            # transport may already be closing), but it releases the event
+            # loop in the normal case and preserves the bounded timeout
+            # contract for the next Market Agent tick.
+            future.cancel()
             raise McpSessionError(f"timeout ({self._tool_call_timeout}s) sur l'appel de l'outil {name!r}") from exc
         except McpSessionError:
             raise

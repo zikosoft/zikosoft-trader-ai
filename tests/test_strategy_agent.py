@@ -282,6 +282,21 @@ class TestTickEndToEnd:
         strategy_agent.tick(engine, redis_client)  # ne doit jamais lever
 
         assert _drain(redis_client, Streams.STRATEGY_PROPOSAL_CREATED) == []
+        # An unevaluable strategy is a visible no-order status in Live Debate,
+        # not merely a DEBUG log line that makes the room appear broken.
+        with engine.connect() as conn:
+            messages = conn.execute(
+                text(
+                    "SELECT agent_type, state, content, payload FROM agent_messages "
+                    "WHERE payload->>'strategy_id' = :sid"
+                ),
+                {"sid": instance["id"]},
+            ).mappings().all()
+        assert len(messages) == 1
+        assert messages[0]["agent_type"] == "strategy_agent"
+        assert messages[0]["state"] == "failed"
+        assert messages[0]["payload"]["risk_flags"] == ["market_data_unavailable"]
+        assert "No option order was considered" in messages[0]["content"]
 
     def test_no_active_strategy_is_a_silent_noop(self, redis_client):
         _publish_analysis(execution_context_id=uuid.uuid4(), evidence={"bars": {}})

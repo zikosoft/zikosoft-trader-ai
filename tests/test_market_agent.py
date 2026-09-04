@@ -337,6 +337,14 @@ class TestNormalizeBars:
         # lever — juste renvoyer aucune bougie.
         assert market_agent._normalize_bars(raw, "MSFT") == []
 
+    def test_normalizes_list_wrapped_by_mcp_raw_value(self):
+        # `McpSessionManager._parse_tool_result` wraps a JSON array in
+        # `raw_value`; this is a valid MCP response shape, not an error.
+        raw = {"raw_value": [{"t": "2024-01-02T00:00:00Z", "c": 10.0}]}
+        bars = market_agent._normalize_bars(raw, "DELL")
+        assert bars[0]["close"] == 10.0
+        assert bars[0]["timestamp"] == "2024-01-02T00:00:00Z"
+
     def test_bars_without_close_are_skipped_not_crashed(self):
         raw = {"bars": [{"t": "2024-01-01T00:00:00Z"}, {"t": "2024-01-02T00:00:00Z", "c": 5.0}]}
         bars = market_agent._normalize_bars(raw, "AAPL")

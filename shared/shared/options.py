@@ -84,7 +84,16 @@ class OptionSelectionError(ValueError):
 def normalize_option_contracts(raw: Any, *, underlying_symbol: str) -> list[dict[str, Any]]:
     """Normalize MCP/REST contract envelopes to selector dictionaries."""
     if isinstance(raw, Mapping):
-        raw = raw.get("option_contracts") or raw.get("contracts") or raw.get("assets") or []
+        data = raw.get("data") if isinstance(raw.get("data"), Mapping) else {}
+        raw = (
+            raw.get("option_contracts")
+            or raw.get("contracts")
+            or raw.get("assets")
+            or raw.get("raw_value")
+            or data.get("option_contracts")
+            or data.get("contracts")
+            or []
+        )
     if not isinstance(raw, list):
         return []
     normalized: list[dict[str, Any]] = []
@@ -115,8 +124,21 @@ def normalize_option_contracts(raw: Any, *, underlying_symbol: str) -> list[dict
 
 def normalize_option_quotes(raw: Any) -> dict[str, dict[str, Any]]:
     """Normalize symbol-keyed option snapshots into selector quote fields."""
-    if isinstance(raw, Mapping) and isinstance(raw.get("snapshots"), Mapping):
-        raw = raw["snapshots"]
+    if isinstance(raw, Mapping):
+        data = raw.get("data") if isinstance(raw.get("data"), Mapping) else {}
+        raw = (
+            raw.get("snapshots")
+            if isinstance(raw.get("snapshots"), Mapping)
+            else raw.get("option_snapshots")
+            if isinstance(raw.get("option_snapshots"), Mapping)
+            else raw.get("raw_value")
+            if isinstance(raw.get("raw_value"), Mapping)
+            else data.get("snapshots")
+            if isinstance(data.get("snapshots"), Mapping)
+            else data.get("option_snapshots")
+            if isinstance(data.get("option_snapshots"), Mapping)
+            else raw
+        )
     if not isinstance(raw, Mapping):
         return {}
     result: dict[str, dict[str, Any]] = {}

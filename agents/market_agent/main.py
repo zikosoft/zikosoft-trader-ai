@@ -85,6 +85,12 @@ BARS_TIMEFRAMES: tuple[str, ...] = tuple(
 )
 BARS_LOOKBACK = int(os.environ.get("MARKET_AGENT_BARS_LOOKBACK", "100"))
 SUPPORTED_BARS_TIMEFRAMES = frozenset({"1Min", "5Min", "15Min", "1Hour", "1Day"})
+# Options are comparatively expensive MCP queries and can be much slower than
+# a stock bar lookup.  Cache them separately so a delayed option-chain request
+# can never prevent the Market -> Strategy -> Live Debate path from publishing
+# the stock evidence required for the first evaluation.
+OPTION_CACHE_REFRESH_SECONDS = int(os.environ.get("MARKET_AGENT_OPTION_CACHE_REFRESH_SECONDS", "60"))
+OPTION_DISCOVERY_LIMIT = int(os.environ.get("MARKET_AGENT_OPTION_DISCOVERY_LIMIT", "50"))
 # The AI strategy, Risk Critic and Explanation agents already provide the
 # visible Claude debate. This background market summary is not displayed or
 # consumed by a downstream decision, so it is opt-in rather than silently
@@ -108,6 +114,17 @@ ANALYSIS_SCHEMA = {
 # Alpaca valide", pas "reconnecter à chaque tick").
 _managers: dict[uuid.UUID, McpSessionManager] = {}
 _managers_credentials: dict[uuid.UUID, tuple[str, str]] = {}
+_option_evidence_cache: dict[tuple[uuid.UUID, str], tuple[float, dict]] = {}
+
+_AGENT_MESSAGE_INSERT_SQL = text(
+    """
+    INSERT INTO agent_messages
+        (id, user_id, execution_context_id, agent_type, conversation_thread_id, state, content, payload)
+    VALUES
+        (:id, :user_id, :execution_context_id, 'market_agent', :conversation_thread_id, :state,
+         :content, CAST(:payload AS jsonb))
+    """
+)
 
 
 def _connected_accounts(engine: Engine) -> list[dict]:
@@ -214,7 +231,13 @@ def _ensure_manager(account_id: uuid.UUID, api_key: str, secret_key: str) -> Mcp
     creds = (api_key, secret_key)
     manager = _managers.get(account_id)
     if manager is None:
-        manager = McpSessionManager()
+        # A slow optional option-chain response must not freeze the entire
+        # market-to-strategy pipeline.  The timeout stays deployment-owned
+        # and applies only to MCP tool calls; it never changes Paper-only
+        # execution policy.
+        manager = McpSessionManager(
+            tool_call_timeout=float(os.environ.get("MCP_TOOL_CALL_TIMEOUT_SECONDS", "5"))
+        )
         _managers[account_id] = manager
         manager.start(api_key, secret_key)
         _managers_credentials[account_id] = creds
@@ -233,6 +256,9 @@ def _cleanup_stale_managers(active_account_ids: set[uuid.UUID]) -> None:
             logger.info("account %s no longer connected, stopping MCP session", account_id)
             _managers.pop(account_id).stop()
             _managers_credentials.pop(account_id, None)
+    for cache_key in list(_option_evidence_cache):
+        if cache_key[0] not in active_account_ids:
+            _option_evidence_cache.pop(cache_key, None)
 
 
 def _sanitize_news(raw_items: list) -> list[dict]:
@@ -280,14 +306,26 @@ def _normalize_bars(raw: Any, symbol: str) -> list[dict]:
     `_extract_data_timestamps` ci-dessous) pour servir de clé de fenêtre au
     futur Strategy Agent (B13).
 
-    Tolérant à deux formes plausibles : `{"bars": [...]}` (un seul symbole,
-    forme la plus probable ici puisqu'on appelle l'outil une fois par
-    symbole) et `{"bars": {"<symbol>": [...]}}` (forme multi-symboles)."""
+    Tolérant aux enveloppes MCP observées sur plusieurs versions :
+    `{"bars": [...]}`, `{"bars": {"<symbol>": [...]}}`, une réponse
+    directement indexée par symbole, ou une liste placée dans `raw_value`
+    par `McpSessionManager._parse_tool_result`.
+
+    Les quatre formes décrivent les mêmes données ; aucune n'autorise de
+    bougie fabriquée. Une forme inconnue reste une liste vide afin que le
+    Strategy Agent publie un diagnostic sûr plutôt qu'un faux signal."""
     if not isinstance(raw, dict):
         return []
     raw_bars = raw.get("bars")
+    if raw_bars is None:
+        raw_bars = raw.get("raw_value")
+    if raw_bars is None:
+        raw_bars = raw.get(symbol) or raw.get(symbol.upper())
+    if raw_bars is None and isinstance(raw.get("data"), dict):
+        data = raw["data"]
+        raw_bars = data.get("bars") or data.get(symbol) or data.get(symbol.upper())
     if isinstance(raw_bars, dict):
-        raw_bars = raw_bars.get(symbol) or []
+        raw_bars = raw_bars.get(symbol) or raw_bars.get(symbol.upper()) or raw_bars.get("data") or []
     if not isinstance(raw_bars, list):
         return []
 
@@ -515,23 +553,11 @@ def _gather_evidence(
             except McpSessionError as exc:
                 evidence["errors"].append(f"get_stock_bars({symbol}, {timeframe}): {exc}")
 
-        # Options discovery remains read-only and uses the same persistent
-        # Paper MCP session. Keep raw envelopes here; the Strategy Agent
-        # normalizes them before deterministic contract selection.
+        # A cached option response (if available) is added later in `tick`.
+        # Do not block stock evidence collection on a potentially slower
+        # option-chain query: without bars, Strategy Agent cannot even create
+        # its truthful HOLD / data-unavailable message.
         evidence["options"][symbol] = {"contracts": [], "chain": {}}
-        try:
-            evidence["options"][symbol]["contracts"] = manager.call_tool(
-                "get_option_contracts",
-                {"underlying_symbols": symbol, "status": "active", "limit": 100},
-            )
-        except McpSessionError as exc:
-            evidence["errors"].append(f"get_option_contracts({symbol}): {exc}")
-        try:
-            evidence["options"][symbol]["chain"] = manager.call_tool(
-                "get_option_chain", {"underlying_symbol": symbol, "limit": 100}
-            )
-        except McpSessionError as exc:
-            evidence["errors"].append(f"get_option_chain({symbol}): {exc}")
 
     try:
         raw_news = manager.call_tool("get_news", {"symbols": ",".join(symbols), "limit": MAX_NEWS_ITEMS})
@@ -540,6 +566,154 @@ def _gather_evidence(
         evidence["errors"].append(f"get_news: {exc}")
 
     return evidence
+
+
+def _cached_option_evidence(account_id: uuid.UUID, symbols: tuple[str, ...]) -> dict[str, dict]:
+    """Return the latest non-sensitive option discovery cache by symbol."""
+    option_data: dict[str, dict] = {}
+    for symbol in symbols:
+        cached = _option_evidence_cache.get((account_id, symbol))
+        option_data[symbol] = dict(cached[1]) if cached is not None else {"contracts": [], "chain": {}}
+    return option_data
+
+
+def _bar_summary(evidence: dict, *, symbols: tuple[str, ...], timeframes: tuple[str, ...]) -> list[dict[str, Any]]:
+    """Return a compact, non-sensitive status of the stock evidence.
+
+    This is deliberately derived from normalized OHLCV data, not from a
+    request timestamp.  It gives the Agent Room and container logs enough
+    information to diagnose a missing debate without exposing account
+    credentials or dumping raw market payloads.
+    """
+    by_symbol = evidence.get("bars") if isinstance(evidence, dict) else {}
+    summary: list[dict[str, Any]] = []
+    for symbol in symbols:
+        by_timeframe = by_symbol.get(symbol) if isinstance(by_symbol, dict) else {}
+        for timeframe in timeframes:
+            bars = by_timeframe.get(timeframe) if isinstance(by_timeframe, dict) else []
+            if not isinstance(bars, list):
+                bars = []
+            last = bars[-1].get("timestamp") if bars and isinstance(bars[-1], dict) else None
+            summary.append(
+                {
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "bar_count": len(bars),
+                    "latest_bar_at": str(last) if last is not None else None,
+                }
+            )
+    return summary
+
+
+def _write_market_status_message(
+    engine: Engine,
+    redis_client: redis.Redis,
+    *,
+    user_id: uuid.UUID,
+    execution_context_id: uuid.UUID,
+    correlation_id: uuid.UUID,
+    evidence: dict,
+    symbols: tuple[str, ...],
+    timeframes: tuple[str, ...],
+    stale: bool,
+) -> None:
+    """Write one truthful Market Agent status into Live Debate.
+
+    A strategy cannot legitimately produce a proposal from fewer than two
+    candles.  Previously this condition was only a DEBUG line, which made an
+    empty Agent Room indistinguishable from a broken pipeline.  The message is
+    throttled by market-candle signature (or 60 seconds when there are no
+    candles) so it informs the demo without becoming a polling transcript.
+    """
+    bars = _bar_summary(evidence, symbols=symbols, timeframes=timeframes)
+    signature = json.dumps(bars, sort_keys=True, separators=(",", ":"))
+    throttle_id = uuid.uuid5(uuid.NAMESPACE_URL, signature)
+    throttle_key = f"agent-room:market-status:{execution_context_id}:{throttle_id}"
+    if not redis_client.set(throttle_key, "1", nx=True, ex=60):
+        return
+
+    ready = [item for item in bars if item["bar_count"] >= 2]
+    labels = ", ".join(
+        f"{item['symbol']} {item['timeframe']} ({item['bar_count']} bars)" for item in bars
+    ) or "no requested candles"
+    if ready and not stale:
+        content = (
+            f"Market Agent: collected usable market data for {labels}. "
+            "Strategy evaluation is ready; option discovery is refreshed separately."
+        )
+        state = "completed"
+    else:
+        reason = "market data is stale" if stale else "fewer than two usable candles were returned"
+        content = (
+            f"Market Agent: {labels}. Strategy evaluation is waiting because {reason}; "
+            "no option order has been considered."
+        )
+        state = "failed"
+
+    with engine.begin() as conn:
+        conn.execute(
+            _AGENT_MESSAGE_INSERT_SQL,
+            {
+                "id": uuid.uuid4(),
+                "user_id": user_id,
+                "execution_context_id": execution_context_id,
+                "conversation_thread_id": correlation_id,
+                "state": state,
+                "content": content,
+                "payload": json.dumps(
+                    {
+                        "source": "market_data",
+                        "bar_summary": bars,
+                        "stale": stale,
+                        "error_count": len(evidence.get("errors") or []),
+                    }
+                ),
+            },
+        )
+
+
+def _refresh_option_evidence_cache(
+    manager: McpSessionManager,
+    *,
+    account_id: uuid.UUID,
+    symbols: tuple[str, ...],
+) -> None:
+    """Refresh option contracts/chain after the market event was published.
+
+    An upstream MCP timeout is isolated to this optional cache refresh.  The
+    next market event can still evaluate stock bars and show the real agent
+    status instead of leaving the whole Agent Room blank.
+    """
+    now = time.monotonic()
+    refresh_after = max(15, OPTION_CACHE_REFRESH_SECONDS)
+    for symbol in symbols:
+        cached = _option_evidence_cache.get((account_id, symbol))
+        if cached is not None and now - cached[0] < refresh_after:
+            continue
+
+        option_data: dict = {"contracts": [], "chain": {}}
+        errors: list[str] = []
+        try:
+            option_data["contracts"] = manager.call_tool(
+                "get_option_contracts",
+                {"underlying_symbols": symbol, "status": "active", "limit": OPTION_DISCOVERY_LIMIT},
+            )
+        except McpSessionError as exc:
+            errors.append(f"contracts: {exc}")
+        try:
+            option_data["chain"] = manager.call_tool(
+                "get_option_chain", {"underlying_symbol": symbol, "limit": OPTION_DISCOVERY_LIMIT}
+            )
+        except McpSessionError as exc:
+            errors.append(f"chain: {exc}")
+
+        _option_evidence_cache[(account_id, symbol)] = (now, option_data)
+        if errors:
+            logger.warning(
+                "option cache refresh incomplete for %s: %s",
+                symbol,
+                "; ".join(errors),
+            )
 
 
 def _parse_timestamp(raw: Any) -> float | None:
@@ -713,11 +887,15 @@ def tick(engine: Engine, redis_client: redis.Redis) -> None:
             continue
 
         monitored_symbols = _requested_symbols(engine, context_id)
+        requested_timeframes = _requested_timeframes(engine, context_id)
         evidence = _gather_evidence(
             manager,
             symbols=monitored_symbols,
-            timeframes=_requested_timeframes(engine, context_id),
+            timeframes=requested_timeframes,
         )
+        # Read the last completed option discovery immediately, but never
+        # force stock OHLCV collection to wait for a fresh chain response.
+        evidence["options"] = _cached_option_evidence(account_id, monitored_symbols)
         ai_summary = _summarize_with_ai(evidence, redis_client) if MARKET_AGENT_AI_SUMMARY_ENABLED else None
 
         # §B27 — persistance des bougies/cotations déjà collectées ci-dessus
@@ -744,6 +922,17 @@ def tick(engine: Engine, redis_client: redis.Redis) -> None:
         # garantissable -> traité comme périmé par défaut, jamais comme
         # frais par défaut.
         stale = _evidence_is_stale(evidence)
+        bar_summary = _bar_summary(evidence, symbols=monitored_symbols, timeframes=requested_timeframes)
+        logger.info(
+            "market evidence collected",
+            extra={
+                "execution_context_id": str(context_id),
+                "symbols": list(monitored_symbols),
+                "bar_summary": bar_summary,
+                "stale": stale,
+                "mcp_error_count": len(evidence.get("errors") or []),
+            },
+        )
 
         envelope = EventEnvelope(
             event_type="market.analysis.completed",
@@ -760,11 +949,26 @@ def tick(engine: Engine, redis_client: redis.Redis) -> None:
             },
         )
         publish_event(redis_client, Streams.MARKET_ANALYSIS_COMPLETED, envelope)
+        _write_market_status_message(
+            engine,
+            redis_client,
+            user_id=account["user_id"],
+            execution_context_id=context_id,
+            correlation_id=envelope.correlation_id,
+            evidence=evidence,
+            symbols=monitored_symbols,
+            timeframes=requested_timeframes,
+            stale=stale,
+        )
         logger.info(
             "market.analysis.completed publié",
             extra={"correlation_id": str(envelope.correlation_id), "execution_context_id": str(context_id)},
         )
+        # This happens only after Strategy Agent has received the market
+        # event.  Timeouts are bounded and cached; a discovery failure is
+        # visible in logs but cannot erase the status message above.
+        _refresh_option_evidence_cache(manager, account_id=account_id, symbols=monitored_symbols)
 
 
 if __name__ == "__main__":
-    run_service("market-agent", tick)
+    run_service("market-agent", tick, interval_seconds=15.0)
